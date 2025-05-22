@@ -7,12 +7,13 @@ const { mockRoadRatings } = require('./ratingsController');
 const { findRoute, isWithinIndia } = require('../utils/astar');
 const osrmService = require('../utils/osrmService');
 const graphHopperService = require('../utils/graphHopperService');
+const safeRouteCalculator = require('../utils/safeRouteCalculator');
 
 // Mock road network graph for India
 // In a production environment, this would be fetched from a database or external API
 const roadNetworkGraph = require('../utils/mockRoadNetwork');
 
-// Calculate route using OpenRouteService for realistic road routing
+// Calculate route using GraphHopper/OSRM for realistic road routing
 exports.calculateRoute = async (req, res) => {
   try {
     console.log('Route calculation request received:', req.body);
@@ -51,9 +52,39 @@ exports.calculateRoute = async (req, res) => {
     const destPoint = nearestDestRoad ? nearestDestRoad.location : destination;
     
     console.log('Using points for routing:', { startPoint, destPoint });
-    console.log('Attempting to get route from GraphHopper...');
+    console.log('Calculating safe route that considers both safety and speed...');
     
-    // Try to get route from GraphHopper first
+    try {
+      // First try to calculate a safe route that considers road ratings
+      const safeRoute = await safeRouteCalculator.calculateSafeRoute(startPoint, destPoint, roadRatings);
+      
+      if (safeRoute && safeRoute.coordinates && safeRoute.coordinates.length > 0) {
+        console.log('Safe route calculated successfully with', safeRoute.coordinates.length, 'points');
+        console.log('Route safety score:', safeRoute.safetyScore);
+        
+        // Prepare response with safe route details
+        const routeResponse = {
+          route: safeRoute.coordinates,
+          distance: safeRoute.distance,
+          estimatedTime: safeRoute.duration,
+          safetyScore: safeRoute.safetyScore,
+          routeType: 'safe-route', // Indicate this is a safety-optimized route
+          info: {
+            distance: safeRoute.distance,
+            estimatedTime: safeRoute.duration,
+            safetyScore: safeRoute.safetyScore,
+            routeType: 'safe-route'
+          }
+        };
+        
+        return res.status(200).json(routeResponse);
+      }
+    } catch (error) {
+      console.log('Safe route calculation failed, falling back to standard routing:', error.message);
+    }
+    
+    // If safe route calculation fails, fall back to standard GraphHopper route
+    console.log('Attempting to get route from GraphHopper...');
     const ghRoute = await graphHopperService.getRoute(startPoint, destPoint);
     
     if (ghRoute && ghRoute.coordinates && ghRoute.coordinates.length > 0) {
@@ -68,9 +99,12 @@ exports.calculateRoute = async (req, res) => {
         estimatedTime: ghRoute.duration,
         safetyScore: safetyScore,
         routeType: 'graphhopper', // Indicate this is a GraphHopper calculated route
-        // Include detailed steps if available
-        steps: ghRoute.legs && ghRoute.legs.length > 0 ? 
-          ghRoute.legs.flatMap(leg => leg.steps) : []
+        info: {
+          distance: ghRoute.distance,
+          estimatedTime: ghRoute.duration,
+          safetyScore: safetyScore,
+          routeType: 'graphhopper'
+        }
       };
       
       return res.status(200).json(routeResponse);
@@ -78,7 +112,7 @@ exports.calculateRoute = async (req, res) => {
     
     console.log('GraphHopper route calculation failed, trying OSRM service...');
     
-    // Fall back to OSRM if OpenRouteService fails
+    // Fall back to OSRM if GraphHopper fails
     const osrmRoute = await osrmService.getRoute(startPoint, destPoint);
     
     if (osrmRoute && osrmRoute.coordinates && osrmRoute.coordinates.length > 0) {
@@ -93,9 +127,12 @@ exports.calculateRoute = async (req, res) => {
         estimatedTime: osrmRoute.duration,
         safetyScore: safetyScore,
         routeType: 'osrm', // Indicate this is an OSRM calculated route
-        // Include detailed steps if available
-        steps: osrmRoute.legs && osrmRoute.legs.length > 0 ? 
-          osrmRoute.legs.flatMap(leg => leg.steps) : []
+        info: {
+          distance: osrmRoute.distance,
+          estimatedTime: osrmRoute.duration,
+          safetyScore: safetyScore,
+          routeType: 'osrm'
+        }
       };
       
       return res.status(200).json(routeResponse);

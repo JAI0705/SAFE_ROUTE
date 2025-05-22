@@ -21,6 +21,7 @@ function App() {
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [prioritizeSafety, setPrioritizeSafety] = useState(true);
 
   // Default center of India if location permission is denied
   const defaultCenter = [20.5937, 78.9629];
@@ -112,6 +113,8 @@ function App() {
     
     try {
       console.log('Calculating route from', startLocation, 'to', destination);
+      console.log('Safety prioritization:', prioritizeSafety ? 'Enabled' : 'Disabled');
+      
       const response = await fetch('/api/routes/calculate', {
         method: 'POST',
         headers: {
@@ -120,6 +123,7 @@ function App() {
         body: JSON.stringify({
           start: startLocation,
           destination: destination,
+          prioritizeSafety: prioritizeSafety,
         }),
       });
       
@@ -143,7 +147,8 @@ function App() {
         distance: data.distance,
         estimatedTime: data.estimatedTime,
         safetyScore: data.safetyScore,
-        routeType: data.routeType || 'standard'
+        routeType: data.routeType || 'standard',
+        isSafeRoute: data.routeType === 'safe-route'
       });
       
       // Create route segments for rating
@@ -389,17 +394,70 @@ function App() {
           <LocationPermission onGrant={handlePermissionGrant} />
         ) : (
           <>
-            <Sidebar 
-              userLocation={userLocation}
-              startLocation={startLocation}
-              destination={destination}
-              routeInfo={routeInfo}
-              loading={loading}
-              error={error}
-              onStartSelect={handleStartSelect}
-              onDestinationSelect={handleDestinationSelect}
-              onCalculateRoute={calculateRoute}
-            />
+            <div className="sidebar">
+              <h1>Safe Route</h1>
+              
+              <div className="safety-toggle" style={{ marginBottom: '15px', padding: '10px', backgroundColor: '#f0f8ff', borderRadius: '5px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={prioritizeSafety} 
+                    onChange={() => setPrioritizeSafety(!prioritizeSafety)}
+                    style={{ marginRight: '10px' }}
+                  />
+                  <span>Prioritize Safety</span>
+                </label>
+                <p style={{ fontSize: '12px', margin: '5px 0 0 0', color: '#666' }}>
+                  {prioritizeSafety ? 
+                    'Finding routes that avoid poorly rated roads' : 
+                    'Calculating fastest route without safety consideration'}
+                </p>
+              </div>
+              
+              <Sidebar 
+                userLocation={userLocation}
+                startLocation={startLocation}
+                destination={destination}
+                routeInfo={routeInfo}
+                loading={loading}
+                error={error}
+                onStartSelect={handleStartSelect}
+                onDestinationSelect={handleDestinationSelect}
+                onCalculateRoute={calculateRoute}
+              />
+              
+              {routeInfo && (
+                <div className="route-info">
+                  <h3>Route Information</h3>
+                  <p><strong>Distance:</strong> {routeInfo.distance.toFixed(2)} km</p>
+                  <p><strong>Estimated Time:</strong> {routeInfo.estimatedTime.toFixed(0)} minutes</p>
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    backgroundColor: routeInfo.safetyScore > 80 ? '#d4edda' : routeInfo.safetyScore > 60 ? '#fff3cd' : '#f8d7da',
+                    padding: '5px 10px',
+                    borderRadius: '4px',
+                    marginBottom: '10px'
+                  }}>
+                    <strong style={{ marginRight: '5px' }}>Safety Score:</strong> 
+                    <span>{routeInfo.safetyScore}/100</span>
+                    {routeInfo.isSafeRoute && (
+                      <span style={{ 
+                        marginLeft: '10px', 
+                        backgroundColor: '#28a745', 
+                        color: 'white', 
+                        padding: '2px 6px', 
+                        borderRadius: '3px',
+                        fontSize: '12px'
+                      }}>
+                        Safety Optimized
+                      </span>
+                    )}
+                  </div>
+                  <p><strong>Route Type:</strong> {routeInfo.routeType}</p>
+                </div>
+              )}
+            </div>
             
             <div className="flex-1">
               <MapView 
@@ -414,14 +472,6 @@ function App() {
                 onRoadRating={handleRoadRating}
               />
             </div>
-            
-            {routeInfo && (
-              <RouteInfo 
-                distance={routeInfo.distance}
-                estimatedTime={routeInfo.estimatedTime}
-                safetyScore={routeInfo.safetyScore}
-              />
-            )}
           </>
         )}
       </div>
