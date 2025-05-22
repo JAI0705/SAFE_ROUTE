@@ -6,7 +6,8 @@ import {
   Popup, 
   useMap, 
   Polyline,
-  useMapEvents
+  useMapEvents,
+  CircleMarker
 } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -43,21 +44,43 @@ const MapEvents = ({ onBoundsChange }) => {
   const map = useMapEvents({
     moveend: () => {
       const bounds = map.getBounds();
-      onBoundsChange({
+      const boundsData = {
         north: bounds.getNorth(),
         south: bounds.getSouth(),
         east: bounds.getEast(),
         west: bounds.getWest()
-      });
+      };
+      
+      // Store bounds in a hidden element for access from outside the component
+      const mapBoundsEl = document.getElementById('mapBounds');
+      if (mapBoundsEl) {
+        mapBoundsEl.dataset.north = boundsData.north;
+        mapBoundsEl.dataset.south = boundsData.south;
+        mapBoundsEl.dataset.east = boundsData.east;
+        mapBoundsEl.dataset.west = boundsData.west;
+      }
+      
+      onBoundsChange(boundsData);
     },
     zoomend: () => {
       const bounds = map.getBounds();
-      onBoundsChange({
+      const boundsData = {
         north: bounds.getNorth(),
         south: bounds.getSouth(),
         east: bounds.getEast(),
         west: bounds.getWest()
-      });
+      };
+      
+      // Store bounds in a hidden element for access from outside the component
+      const mapBoundsEl = document.getElementById('mapBounds');
+      if (mapBoundsEl) {
+        mapBoundsEl.dataset.north = boundsData.north;
+        mapBoundsEl.dataset.south = boundsData.south;
+        mapBoundsEl.dataset.east = boundsData.east;
+        mapBoundsEl.dataset.west = boundsData.west;
+      }
+      
+      onBoundsChange(boundsData);
     }
   });
   
@@ -86,6 +109,7 @@ const MapView = ({
   destination, 
   route, 
   roadRatings, 
+  routeSegments,
   trafficData, 
   onBoundsChange, 
   onRoadRating 
@@ -113,20 +137,65 @@ const MapView = ({
   // Handle road click for rating
   const handleRoadClick = (event, roadSegment) => {
     // Prevent map click event
-    L.DomEvent.stopPropagation(event);
+    if (event && event.originalEvent) {
+      L.DomEvent.stopPropagation(event.originalEvent);
+    }
     
+    setSelectedRoad(roadSegment);
+    
+    // Log for debugging
+    console.log('Road segment selected for rating:', roadSegment);
+  };
+
+  // Handle click on the main route - optimized version
+  const handleRouteClick = (event) => {
+    // Prevent default behaviors and propagation
+    if (event && event.originalEvent) {
+      L.DomEvent.stopPropagation(event.originalEvent);
+    }
+    
+    // Get the click location
+    const clickLatLng = event.latlng;
+    
+    // Create a simplified road segment from the click location
+    // We'll use a minimal object with just what we need
+    const roadSegment = {
+      id: `route_click_${Date.now()}`,
+      coordinates: {
+        start: {
+          lat: clickLatLng.lat - 0.0005,
+          lng: clickLatLng.lng - 0.0005
+        },
+        end: {
+          lat: clickLatLng.lat + 0.0005,
+          lng: clickLatLng.lng + 0.0005
+        }
+      },
+      clickPoint: clickLatLng
+    };
+    
+    // Set the selected road immediately
     setSelectedRoad(roadSegment);
   };
 
-  // Submit road rating
+  // Submit road rating - fixed version to prevent stuck popups
   const submitRoadRating = (rating) => {
     if (selectedRoad) {
-      onRoadRating(
-        selectedRoad.id || `road_${Date.now()}`,
-        selectedRoad.coordinates,
-        rating
-      );
+      // First close the popup to prevent it from getting stuck
       setSelectedRoad(null);
+      
+      // Then submit the rating (after popup is closed)
+      setTimeout(() => {
+        try {
+          onRoadRating(
+            selectedRoad.id,
+            selectedRoad.coordinates,
+            rating
+          );
+        } catch (error) {
+          console.error('Error submitting road rating:', error);
+        }
+      }, 10);
     }
   };
 
@@ -134,6 +203,9 @@ const MapView = ({
 
   return (
     <div className="map-container">
+      {/* Hidden element to store map bounds */}
+      <div id="mapBounds" style={{ display: 'none' }} data-north="90" data-south="-90" data-east="180" data-west="-180"></div>
+      
       <MapContainer 
         center={mapCenter} 
         zoom={mapZoom} 
@@ -195,14 +267,6 @@ const MapView = ({
         {/* Route polyline */}
         {route && (
           <>
-            {/* Main route line */}
-            <Polyline 
-              positions={route.map(point => [point.lat, point.lng])}
-              color="#006400"
-              weight={6}
-              opacity={0.8}
-              smoothFactor={1}
-            />
             {/* Route outline for better visibility */}
             <Polyline 
               positions={route.map(point => [point.lat, point.lng])}
@@ -211,36 +275,170 @@ const MapView = ({
               opacity={0.4}
               smoothFactor={1}
             />
+            {/* Main route line - clickable for rating */}
+            <Polyline 
+              positions={route.map(point => [point.lat, point.lng])}
+              pathOptions={{
+                color: '#006400',
+                weight: 6,
+                opacity: 0.8,
+                smoothFactor: 1,
+                className: 'clickable-main-route'
+              }}
+              eventHandlers={{
+                click: handleRouteClick,
+                mouseover: (e) => {
+                  // Simplified style change
+                  e.target.setStyle({
+                    weight: 8,
+                    color: '#008000'
+                  });
+                },
+                mouseout: (e) => {
+                  // Simplified style change
+                  e.target.setStyle({
+                    weight: 6,
+                    color: '#006400'
+                  });
+                }
+              }}
+            />
           </>
         )}
         
-        {/* Road ratings removed */}
+        {/* Road ratings visualization */}
+        {roadRatings && roadRatings.map((rating, index) => (
+          <Polyline 
+            key={`rating-${rating.roadId}-${index}`}
+            positions={[
+              [rating.coordinates.start.lat, rating.coordinates.start.lng],
+              [rating.coordinates.end.lat, rating.coordinates.end.lng]
+            ]}
+            color={rating.rating === 'Good' ? '#28a745' : '#dc3545'}
+            weight={4}
+            opacity={0.6}
+            dashArray={rating.rating === 'Good' ? '' : '5, 10'}
+          />
+        ))}
+        
+        {/* 2 km segments for rating that follow the actual road */}
+        {routeSegments && routeSegments.length > 0 && routeSegments.map((segment, index) => (
+          <React.Fragment key={`segment-container-${segment.id}-${index}`}>
+            {/* The segment line */}
+            <Polyline 
+              key={`segment-${segment.id}-${index}`}
+              positions={segment.points || [
+                [segment.coordinates.start.lat, segment.coordinates.start.lng],
+                [segment.coordinates.end.lat, segment.coordinates.end.lng]
+              ]}
+              pathOptions={{
+                color: '#006400',
+                weight: 8,
+                opacity: 0.7,
+                className: 'clickable-route-segment'
+              }}
+              eventHandlers={{
+                click: (e) => {
+                  console.log('2km road segment clicked:', segment);
+                  handleRoadClick(e, segment);
+                },
+                mouseover: (e) => {
+                  e.target.setStyle({
+                    weight: 10,
+                    color: '#008000'
+                  });
+                },
+                mouseout: (e) => {
+                  e.target.setStyle({
+                    weight: 8,
+                    color: '#006400'
+                  });
+                }
+              }}
+            />
+            
+            {/* Segment divider markers */}
+            {index > 0 && (
+              <CircleMarker
+                center={[
+                  segment.coordinates.start.lat,
+                  segment.coordinates.start.lng
+                ]}
+                radius={4}
+                pathOptions={{
+                  color: '#ffffff',
+                  fillColor: '#006400',
+                  fillOpacity: 1,
+                  weight: 2
+                }}
+              />
+            )}
+          </React.Fragment>
+        ))}
         
         {/* Traffic data removed */}
         
-        {/* Road click for rating */}
+        {/* Road click for rating - with improved popup handling */}
         {selectedRoad && (
           <Popup
             position={[
-              (selectedRoad.coordinates.start.lat + selectedRoad.coordinates.end.lat) / 2,
-              (selectedRoad.coordinates.start.lng + selectedRoad.coordinates.end.lng) / 2
+              selectedRoad.clickPoint ? selectedRoad.clickPoint.lat : (selectedRoad.coordinates.start.lat + selectedRoad.coordinates.end.lat) / 2,
+              selectedRoad.clickPoint ? selectedRoad.clickPoint.lng : (selectedRoad.coordinates.start.lng + selectedRoad.coordinates.end.lng) / 2
             ]}
             onClose={() => setSelectedRoad(null)}
+            closeButton={true}
+            autoClose={true}
+            closeOnClick={false}
           >
-            <div className="road-rating-popup">
-              <p className="font-semibold mb-2">Rate this road:</p>
-              <div className="flex justify-between">
+            <div className="road-rating-popup" style={{ padding: '10px', textAlign: 'center' }}>
+              <p style={{ fontWeight: 'bold', marginBottom: '5px' }}>Rate this road segment:</p>
+              {selectedRoad.distanceKm && (
+                <p style={{ fontSize: '12px', marginBottom: '10px', color: '#555' }}>
+                  ~{selectedRoad.distanceKm} km segment
+                </p>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
                 <button 
-                  className="good"
+                  style={{ 
+                    backgroundColor: '#28a745', 
+                    color: 'white', 
+                    border: 'none', 
+                    padding: '8px 16px', 
+                    borderRadius: '4px', 
+                    cursor: 'pointer' 
+                  }}
                   onClick={() => submitRoadRating('Good')}
                 >
-                  Good
+                  Good Road
                 </button>
                 <button 
-                  className="bad"
+                  style={{ 
+                    backgroundColor: '#dc3545', 
+                    color: 'white', 
+                    border: 'none', 
+                    padding: '8px 16px', 
+                    borderRadius: '4px', 
+                    cursor: 'pointer' 
+                  }}
                   onClick={() => submitRoadRating('Bad')}
                 >
-                  Bad
+                  Bad Road
+                </button>
+              </div>
+              <div style={{ marginTop: '10px' }}>
+                <button 
+                  style={{ 
+                    backgroundColor: '#6c757d', 
+                    color: 'white', 
+                    border: 'none', 
+                    padding: '5px 10px', 
+                    borderRadius: '4px', 
+                    cursor: 'pointer',
+                    fontSize: '12px'
+                  }}
+                  onClick={() => setSelectedRoad(null)}
+                >
+                  Cancel
                 </button>
               </div>
             </div>

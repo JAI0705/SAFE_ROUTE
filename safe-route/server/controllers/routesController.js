@@ -137,48 +137,25 @@ exports.calculateRoute = async (req, res) => {
       return res.status(200).json(routeResponse);
     }
     
-    console.log('A* algorithm failed to find route, creating simple direct route');
-    // Create a simple route if all routing methods fail
-    const simpleRoute = createSimpleRoute(start, destination);
+    console.log('All routing methods failed');
     
-    // Prepare response with route details
-    const routeResponse = {
-      route: simpleRoute,
-      distance: calculateSimpleDistance(start, destination),
-      estimatedTime: calculateSimpleTime(start, destination),
-      safetyScore: 85, // Default good safety score for demo
-      routeType: 'direct' // Indicate this is a direct route (not following roads)
-    };
-    
-    return res.status(200).json(routeResponse);
+    // Return an error instead of creating a simple direct route
+    return res.status(404).json({
+      message: 'Could not find a route between the specified locations. Please try different locations.'
+    });
   } catch (error) {
     console.error('Route calculation error:', error);
     // Provide a more detailed error message
     const errorMessage = error.message || 'Unknown error occurred during route calculation';
-    res.status(500).json({ 
+    res.status(500).json({
       message: 'Failed to calculate route', 
-      details: errorMessage,
-      // Create a simple route as fallback
-      fallbackRoute: createSimpleRoute(req.body.start, req.body.destination)
+      details: errorMessage
+      // No fallback route - we don't want straight lines
     });
   }
 };
 
-// Create a simple route between two points for demo purposes
-function createSimpleRoute(start, destination) {
-  // Create a simple route with a few intermediate points
-  const latDiff = destination.lat - start.lat;
-  const lngDiff = destination.lng - start.lng;
-  
-  // Create 3 intermediate points
-  return [
-    { lat: start.lat, lng: start.lng },
-    { lat: start.lat + latDiff * 0.25, lng: start.lng + lngDiff * 0.25 },
-    { lat: start.lat + latDiff * 0.5, lng: start.lng + lngDiff * 0.5 },
-    { lat: start.lat + latDiff * 0.75, lng: start.lng + lngDiff * 0.75 },
-    { lat: destination.lat, lng: destination.lng }
-  ];
-}
+// Function removed to prevent straight line routes
 
 // Calculate simple distance between two points
 function calculateSimpleDistance(start, destination) {

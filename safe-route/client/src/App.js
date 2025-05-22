@@ -16,6 +16,8 @@ function App() {
   const [destination, setDestination] = useState(null);
   const [route, setRoute] = useState(null);
   const [routeInfo, setRouteInfo] = useState(null);
+  const [roadRatings, setRoadRatings] = useState([]);
+  const [routeSegments, setRouteSegments] = useState([]);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -126,46 +128,40 @@ function App() {
       // Check if the response contains an error message
       if (!response.ok) {
         console.error('Server returned error:', data);
-        
-        // If the server provided a fallback route, use it
-        if (data.fallbackRoute && Array.isArray(data.fallbackRoute)) {
-          console.log('Using fallback route provided by server');
-          setRoute(data.fallbackRoute);
-          setRouteInfo({
-            distance: calculateSimpleDistance(startLocation, destination),
-            estimatedTime: calculateSimpleTime(startLocation, destination),
-            safetyScore: 70, // Default safety score for fallback routes
-            isFallback: true
-          });
-          setError('Using simplified route due to calculation error.');
-        } else {
-          throw new Error(data.message || 'Failed to calculate route');
-        }
+        throw new Error(data.message || 'Failed to calculate route');
+      }
+      
+      // Success case - use the calculated route
+      console.log('Route calculated successfully:', data);
+      
+      if (!data.route || !Array.isArray(data.route) || data.route.length === 0) {
+        throw new Error('No route points returned from the server');
+      }
+      
+      setRoute(data.route);
+      setRouteInfo({
+        distance: data.distance,
+        estimatedTime: data.estimatedTime,
+        safetyScore: data.safetyScore,
+        routeType: data.routeType || 'standard'
+      });
+      
+      // Create route segments for rating
+      if (data.route.length > 1) {
+        console.log('Creating route segments from route with', data.route.length, 'points');
+        const segments = createRouteSegments(data.route);
+        console.log('Created segments:', segments);
+        setRouteSegments(segments);
       } else {
-        // Success case - use the calculated route
-        console.log('Route calculated successfully:', data);
-        setRoute(data.route);
-        setRouteInfo({
-          distance: data.distance,
-          estimatedTime: data.estimatedTime,
-          safetyScore: data.safetyScore,
-          routeType: data.routeType || 'standard'
-        });
+        console.warn('Not enough route points to create segments');
+        setRouteSegments([]);
       }
     } catch (error) {
       console.error('Error calculating route:', error);
-      
-      // Create a simple direct route as fallback
-      const simpleRoute = createSimpleRoute(startLocation, destination);
-      setRoute(simpleRoute);
-      setRouteInfo({
-        distance: calculateSimpleDistance(startLocation, destination),
-        estimatedTime: calculateSimpleTime(startLocation, destination),
-        safetyScore: 70, // Default safety score for fallback routes
-        isFallback: true
-      });
-      
-      setError('Failed to calculate optimal route. Using simplified route instead.');
+      setError(error.message);
+      setRoute(null);
+      setRouteInfo(null);
+      setRouteSegments([]);
     } finally {
       setLoading(false);
     }
@@ -209,15 +205,179 @@ function App() {
     ];
   };
 
-  // Road rating functionality removed
+  // Handle road rating - optimized to reduce lag
+  const handleRoadRating = async (roadId, coordinates, rating) => {
+    // Show immediate feedback to the user
+    const feedbackMessage = `Rating road as ${rating}...`;
+    setError(feedbackMessage);
+    
+    // Use setTimeout to make the rating process non-blocking
+    setTimeout(async () => {
+      try {
+        const response = await fetch('/api/ratings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            roadId,
+            coordinates,
+            rating,
+          }),
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to submit road rating');
+        }
+        
+        // Get the current map bounds
+        const mapBounds = document.getElementById('mapBounds');
+        let bounds = null;
+        
+        if (mapBounds && mapBounds.dataset) {
+          bounds = {
+            north: parseFloat(mapBounds.dataset.north || 90),
+            south: parseFloat(mapBounds.dataset.south || -90),
+            east: parseFloat(mapBounds.dataset.east || 180),
+            west: parseFloat(mapBounds.dataset.west || -180)
+          };
+        }
+        
+        // Update road ratings with current bounds
+        fetchRoadRatings(bounds);
+        
+        // Clear the feedback message
+        setError(null);
+        
+        // Show a non-blocking success message
+        const successElement = document.createElement('div');
+        successElement.className = 'success-toast';
+        successElement.textContent = `Road rated as ${rating} successfully!`;
+        successElement.style.position = 'fixed';
+        successElement.style.bottom = '20px';
+        successElement.style.right = '20px';
+        successElement.style.backgroundColor = '#28a745';
+        successElement.style.color = 'white';
+        successElement.style.padding = '10px 20px';
+        successElement.style.borderRadius = '4px';
+        successElement.style.zIndex = '1000';
+        document.body.appendChild(successElement);
+        
+        // Remove the success message after 3 seconds
+        setTimeout(() => {
+          if (document.body.contains(successElement)) {
+            document.body.removeChild(successElement);
+          }
+        }, 3000);
+      } catch (error) {
+        console.error('Error submitting road rating:', error);
+        setError('Failed to submit road rating. Please try again.');
+      }
+    }, 0);
+  };
 
-  // Road ratings functionality removed
+  // Fetch road ratings
+  const fetchRoadRatings = async (bounds) => {
+    if (!bounds) return;
+    
+    try {
+      console.log('Fetching road ratings with bounds:', bounds);
+      const { north, south, east, west } = bounds;
+      const response = await fetch(`/api/ratings/bounds?north=${north}&south=${south}&east=${east}&west=${west}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch road ratings');
+      }
+      
+      const data = await response.json();
+      console.log('Received road ratings:', data);
+      setRoadRatings(data);
+    } catch (error) {
+      console.error('Error fetching road ratings:', error);
+    }
+  };
+  
+  // Calculate distance between two points in kilometers using the Haversine formula
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+  
+  // Create route segments of approximately 2 km each
+  const createRouteSegments = (routePoints) => {
+    if (!routePoints || routePoints.length < 2) {
+      console.warn('Not enough points to create segments');
+      return [];
+    }
+    
+    const segments = [];
+    const TARGET_SEGMENT_LENGTH_KM = 2; // Target segment length in kilometers
+    
+    let currentSegmentPoints = [];
+    let currentSegmentDistance = 0;
+    let segmentStartIndex = 0;
+    
+    // Add the first point to start the first segment
+    currentSegmentPoints.push([routePoints[0].lat, routePoints[0].lng]);
+    
+    // Iterate through points to create segments of ~2km each
+    for (let i = 1; i < routePoints.length; i++) {
+      // Calculate distance from previous point
+      const distance = calculateDistance(
+        routePoints[i-1].lat, routePoints[i-1].lng,
+        routePoints[i].lat, routePoints[i].lng
+      );
+      
+      // Add point to current segment
+      currentSegmentPoints.push([routePoints[i].lat, routePoints[i].lng]);
+      currentSegmentDistance += distance;
+      
+      // If we've reached approximately 2km or the end of the route
+      if (currentSegmentDistance >= TARGET_SEGMENT_LENGTH_KM || i === routePoints.length - 1) {
+        // Create a segment if we have at least 2 points
+        if (currentSegmentPoints.length >= 2) {
+          const segmentId = `segment_${segmentStartIndex}_${i}_${Date.now()}`;
+          
+          segments.push({
+            id: segmentId,
+            points: [...currentSegmentPoints], // Create a copy of the points array
+            coordinates: {
+              start: {
+                lat: routePoints[segmentStartIndex].lat,
+                lng: routePoints[segmentStartIndex].lng
+              },
+              end: {
+                lat: routePoints[i].lat,
+                lng: routePoints[i].lng
+              }
+            },
+            distanceKm: currentSegmentDistance.toFixed(1)
+          });
+          
+          // Start a new segment
+          segmentStartIndex = i;
+          currentSegmentPoints = [[routePoints[i].lat, routePoints[i].lng]];
+          currentSegmentDistance = 0;
+        }
+      }
+    }
+    
+    console.log(`Created ${segments.length} road segments of ~2km each from ${routePoints.length} points`);
+    return segments;
+  };
 
   // Traffic data functionality removed
 
   // Handle map bounds change
   const handleBoundsChange = (bounds) => {
-    // No longer fetching road ratings
+    fetchRoadRatings(bounds);
   };
 
   return (
@@ -247,9 +407,11 @@ function App() {
                 startLocation={startLocation}
                 destination={destination}
                 route={route}
-                roadRatings={[]}
+                roadRatings={roadRatings}
+                routeSegments={routeSegments}
                 trafficData={[]}
                 onBoundsChange={handleBoundsChange}
+                onRoadRating={handleRoadRating}
               />
             </div>
             
