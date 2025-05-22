@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { searchLocations } from '../services/geocodingService';
 
-// Mock data for popular destinations in India
+// Popular destinations in India for quick selection
 const popularDestinations = [
   { name: 'Delhi', lat: 28.7041, lng: 77.1025 },
   { name: 'Mumbai', lat: 19.0760, lng: 72.8777 },
@@ -8,7 +9,10 @@ const popularDestinations = [
   { name: 'Chennai', lat: 13.0827, lng: 80.2707 },
   { name: 'Kolkata', lat: 22.5726, lng: 88.3639 },
   { name: 'Hyderabad', lat: 17.3850, lng: 78.4867 },
-  { name: 'Jaipur', lat: 26.9124, lng: 75.7873 }
+  { name: 'Jaipur', lat: 26.9124, lng: 75.7873 },
+  { name: 'Agra', lat: 27.1767, lng: 78.0081 },
+  { name: 'Varanasi', lat: 25.3176, lng: 82.9739 },
+  { name: 'Goa', lat: 15.2993, lng: 74.1240 }
 ];
 
 const Sidebar = ({ 
@@ -28,7 +32,21 @@ const Sidebar = ({
   const [isSearching, setIsSearching] = useState(false);
   const [activeSearchField, setActiveSearchField] = useState(null); // 'start' or 'destination'
 
-  // Handle search input change
+  // Debounce function to prevent too many API calls
+  const debounce = (func, delay) => {
+    let timeoutId;
+    return function(...args) {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        func.apply(this, args);
+      }, delay);
+    };
+  };
+
+  // Search timeout reference
+  const searchTimeoutRef = useRef(null);
+
+  // Handle search input change with debounce
   const handleSearchChange = (e, type) => {
     const query = e.target.value;
     
@@ -40,17 +58,31 @@ const Sidebar = ({
       setActiveSearchField('destination');
     }
     
+    // Clear any existing timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    
     if (query.length > 2) {
       setIsSearching(true);
       
-      // Filter popular destinations based on query
-      // In a real app, this would be an API call to a geocoding service
-      const results = popularDestinations.filter(place => 
-        place.name.toLowerCase().includes(query.toLowerCase())
-      );
-      
-      setSearchResults(results);
-      setIsSearching(false);
+      // Set a new timeout for the search
+      searchTimeoutRef.current = setTimeout(async () => {
+        try {
+          // Search for locations using the geocoding service
+          const results = await searchLocations(query);
+          setSearchResults(results);
+        } catch (error) {
+          console.error('Error searching for locations:', error);
+          // Fallback to filtering popular destinations if API fails
+          const fallbackResults = popularDestinations.filter(place => 
+            place.name.toLowerCase().includes(query.toLowerCase())
+          );
+          setSearchResults(fallbackResults);
+        } finally {
+          setIsSearching(false);
+        }
+      }, 500); // 500ms debounce
     } else {
       setSearchResults([]);
     }
@@ -60,10 +92,10 @@ const Sidebar = ({
   const handleLocationClick = (location) => {
     if (activeSearchField === 'start') {
       onStartSelect(location);
-      setStartSearchQuery(location.name);
+      setStartSearchQuery(location.shortName || location.name);
     } else {
       onDestinationSelect(location);
-      setDestSearchQuery(location.name);
+      setDestSearchQuery(location.shortName || location.name);
     }
     setSearchResults([]);
   };
@@ -175,23 +207,39 @@ const Sidebar = ({
         {searchResults.length > 0 && (
           <div className="mb-4 border border-gray-200 rounded-lg overflow-hidden">
             <ul>
-              {searchResults.map((place, index) => (
-                <li 
-                  key={index}
-                  className="border-b border-gray-200 last:border-b-0 hover:bg-gray-50 cursor-pointer"
-                  onClick={() => handleLocationClick(place)}
-                >
-                  <div className="p-3">
-                    <div className="flex items-center">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      <span>{place.name}</span>
-                    </div>
-                  </div>
+              {isSearching ? (
+                <li className="p-3 text-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary mx-auto"></div>
+                  <p className="text-sm text-gray-500 mt-1">Searching...</p>
                 </li>
-              ))}
+              ) : searchResults.length > 0 ? (
+                searchResults.map((place, index) => (
+                  <li 
+                    key={index}
+                    className="border-b border-gray-200 last:border-b-0 hover:bg-gray-50 cursor-pointer"
+                    onClick={() => handleLocationClick(place)}
+                  >
+                    <div className="p-3">
+                      <div className="flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{place.shortName || place.name}</span>
+                          {place.name !== place.shortName && (
+                            <span className="text-xs text-gray-500 truncate max-w-[200px]">{place.name}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </li>
+                ))
+              ) : (activeSearchField && (startSearchQuery.length > 2 || destSearchQuery.length > 2)) && (
+                <li className="p-3 text-center">
+                  <p className="text-sm text-gray-500">No results found</p>
+                </li>
+              )}
             </ul>
           </div>
         )}
@@ -248,7 +296,7 @@ const Sidebar = ({
         <div>
           <h3 className="font-bold mb-2">Popular Destinations</h3>
           <ul className="space-y-2">
-            {popularDestinations.slice(0, 5).map((place, index) => (
+            {popularDestinations.slice(0, 8).map((place, index) => (
               <li 
                 key={index}
                 className="flex items-center p-2 hover:bg-gray-50 rounded-lg cursor-pointer"

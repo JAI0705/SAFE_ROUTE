@@ -16,8 +16,6 @@ function App() {
   const [destination, setDestination] = useState(null);
   const [route, setRoute] = useState(null);
   const [routeInfo, setRouteInfo] = useState(null);
-  const [roadRatings, setRoadRatings] = useState([]);
-  const [trafficData, setTrafficData] = useState([]);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -111,6 +109,7 @@ function App() {
     setError(null);
     
     try {
+      console.log('Calculating route from', startLocation, 'to', destination);
       const response = await fetch('/api/routes/calculate', {
         method: 'POST',
         headers: {
@@ -122,99 +121,103 @@ function App() {
         }),
       });
       
-      if (!response.ok) {
-        throw new Error('Failed to calculate route');
-      }
-      
       const data = await response.json();
-      setRoute(data.route);
-      setRouteInfo({
-        distance: data.distance,
-        estimatedTime: data.estimatedTime,
-        safetyScore: data.safetyScore,
-      });
+      
+      // Check if the response contains an error message
+      if (!response.ok) {
+        console.error('Server returned error:', data);
+        
+        // If the server provided a fallback route, use it
+        if (data.fallbackRoute && Array.isArray(data.fallbackRoute)) {
+          console.log('Using fallback route provided by server');
+          setRoute(data.fallbackRoute);
+          setRouteInfo({
+            distance: calculateSimpleDistance(startLocation, destination),
+            estimatedTime: calculateSimpleTime(startLocation, destination),
+            safetyScore: 70, // Default safety score for fallback routes
+            isFallback: true
+          });
+          setError('Using simplified route due to calculation error.');
+        } else {
+          throw new Error(data.message || 'Failed to calculate route');
+        }
+      } else {
+        // Success case - use the calculated route
+        console.log('Route calculated successfully:', data);
+        setRoute(data.route);
+        setRouteInfo({
+          distance: data.distance,
+          estimatedTime: data.estimatedTime,
+          safetyScore: data.safetyScore,
+          routeType: data.routeType || 'standard'
+        });
+      }
     } catch (error) {
       console.error('Error calculating route:', error);
-      setError('Failed to calculate route. Please try again.');
+      
+      // Create a simple direct route as fallback
+      const simpleRoute = createSimpleRoute(startLocation, destination);
+      setRoute(simpleRoute);
+      setRouteInfo({
+        distance: calculateSimpleDistance(startLocation, destination),
+        estimatedTime: calculateSimpleTime(startLocation, destination),
+        safetyScore: 70, // Default safety score for fallback routes
+        isFallback: true
+      });
+      
+      setError('Failed to calculate optimal route. Using simplified route instead.');
     } finally {
       setLoading(false);
     }
   };
-
-  // Handle road rating
-  const handleRoadRating = async (roadId, coordinates, rating) => {
-    try {
-      const response = await fetch('/api/ratings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          roadId,
-          coordinates,
-          rating,
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to submit road rating');
-      }
-      
-      // Recalculate route if one exists
-      if (destination) {
-        calculateRoute(destination);
-      }
-      
-      // Update road ratings
-      fetchRoadRatings();
-    } catch (error) {
-      console.error('Error submitting road rating:', error);
-      setError('Failed to submit road rating. Please try again.');
-    }
+  
+  // Calculate simple distance between two points using Haversine formula
+  const calculateSimpleDistance = (start, destination) => {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (destination.lat - start.lat) * Math.PI / 180;
+    const dLon = (destination.lng - start.lng) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(start.lat * Math.PI / 180) * Math.cos(destination.lat * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // Distance in kilometers
   };
-
-  // Fetch road ratings
-  const fetchRoadRatings = async (bounds) => {
-    if (!bounds) return;
+  
+  // Calculate simple time estimate based on distance
+  const calculateSimpleTime = (start, destination) => {
+    const distance = calculateSimpleDistance(start, destination);
+    const averageSpeed = 40; // km/h
+    return (distance / averageSpeed) * 60; // Convert to minutes
+  };
+  
+  // Create a simple route between two points
+  const createSimpleRoute = (start, destination) => {
+    if (!start || !destination) return [];
     
-    try {
-      const { north, south, east, west } = bounds;
-      const response = await fetch(`/api/ratings/bounds?north=${north}&south=${south}&east=${east}&west=${west}`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch road ratings');
-      }
-      
-      const data = await response.json();
-      setRoadRatings(data);
-    } catch (error) {
-      console.error('Error fetching road ratings:', error);
-    }
+    // Create a simple route with a few intermediate points
+    const latDiff = destination.lat - start.lat;
+    const lngDiff = destination.lng - start.lng;
+    
+    // Create 3 intermediate points
+    return [
+      { lat: start.lat, lng: start.lng },
+      { lat: start.lat + latDiff * 0.25, lng: start.lng + lngDiff * 0.25 },
+      { lat: start.lat + latDiff * 0.5, lng: start.lng + lngDiff * 0.5 },
+      { lat: start.lat + latDiff * 0.75, lng: start.lng + lngDiff * 0.75 },
+      { lat: destination.lat, lng: destination.lng }
+    ];
   };
 
-  // Fetch traffic data
-  const fetchTrafficData = async (bounds) => {
-    if (!bounds) return;
-    
-    try {
-      const { north, south, east, west } = bounds;
-      const response = await fetch(`/api/routes/traffic?north=${north}&south=${south}&east=${east}&west=${west}`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch traffic data');
-      }
-      
-      const data = await response.json();
-      setTrafficData(data);
-    } catch (error) {
-      console.error('Error fetching traffic data:', error);
-    }
-  };
+  // Road rating functionality removed
+
+  // Road ratings functionality removed
+
+  // Traffic data functionality removed
 
   // Handle map bounds change
   const handleBoundsChange = (bounds) => {
-    fetchRoadRatings(bounds);
-    fetchTrafficData(bounds);
+    // No longer fetching road ratings
   };
 
   return (
@@ -244,10 +247,9 @@ function App() {
                 startLocation={startLocation}
                 destination={destination}
                 route={route}
-                roadRatings={roadRatings}
-                trafficData={trafficData}
+                roadRatings={[]}
+                trafficData={[]}
                 onBoundsChange={handleBoundsChange}
-                onRoadRating={handleRoadRating}
               />
             </div>
             

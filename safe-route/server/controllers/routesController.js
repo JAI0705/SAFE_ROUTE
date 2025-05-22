@@ -1,59 +1,109 @@
 // const RoadRating = require('../models/RoadRating');
 
-// Mock traffic data
-const mockTrafficData = [
-  {
-    id: 'traffic_delhi_1',
-    coordinates: {
-      start: { lat: 28.7041, lng: 77.1025 },
-      end: { lat: 28.5, lng: 77.3 }
-    },
-    trafficStatus: 'Moderate'
-  },
-  {
-    id: 'traffic_delhi_2',
-    coordinates: {
-      start: { lat: 28.5, lng: 77.3 },
-      end: { lat: 28.4, lng: 77.5 }
-    },
-    trafficStatus: 'Congested'
-  },
-  {
-    id: 'traffic_mumbai_1',
-    coordinates: {
-      start: { lat: 19.0760, lng: 72.8777 },
-      end: { lat: 19.2, lng: 72.9 }
-    },
-    trafficStatus: 'Smooth'
-  }
-];
+// Traffic data removed
 
 // Get mock road ratings from the ratings controller
 const { mockRoadRatings } = require('./ratingsController');
 const { findRoute, isWithinIndia } = require('../utils/astar');
+const osrmService = require('../utils/osrmService');
+const graphHopperService = require('../utils/graphHopperService');
 
 // Mock road network graph for India
 // In a production environment, this would be fetched from a database or external API
 const roadNetworkGraph = require('../utils/mockRoadNetwork');
 
-// Calculate route using A* algorithm
+// Calculate route using OpenRouteService for realistic road routing
 exports.calculateRoute = async (req, res) => {
   try {
+    console.log('Route calculation request received:', req.body);
     const { start, destination } = req.body;
     
     if (!start || !destination || !start.lat || !start.lng || !destination.lat || !destination.lng) {
+      console.error('Invalid route request - missing coordinates:', { start, destination });
       return res.status(400).json({ message: 'Start and destination coordinates are required' });
     }
     
     // Validate that coordinates are within India
     if (!isWithinIndia(start.lat, start.lng) || !isWithinIndia(destination.lat, destination.lng)) {
+      console.error('Coordinates outside India boundaries:', { start, destination });
       return res.status(400).json({ message: 'Route must be within Indian geographical boundaries' });
     }
     
     // Use mock road ratings for demo
     const roadRatings = mockRoadRatings || [];
     
-    // Prepare start and destination nodes
+    console.log('Attempting to find nearest road points...');
+    // First, try to find the nearest road points using GraphHopper
+    let nearestStartRoad, nearestDestRoad;
+    
+    try {
+      nearestStartRoad = await graphHopperService.getNearestRoad(start);
+      nearestDestRoad = await graphHopperService.getNearestRoad(destination);
+    } catch (error) {
+      console.error('Error finding nearest roads with GraphHopper:', error.message);
+      // Fall back to OSRM if GraphHopper fails
+      nearestStartRoad = await osrmService.getNearestRoad(start);
+      nearestDestRoad = await osrmService.getNearestRoad(destination);
+    }
+    
+    // Use the nearest road points if available, otherwise use the original coordinates
+    const startPoint = nearestStartRoad ? nearestStartRoad.location : start;
+    const destPoint = nearestDestRoad ? nearestDestRoad.location : destination;
+    
+    console.log('Using points for routing:', { startPoint, destPoint });
+    console.log('Attempting to get route from GraphHopper...');
+    
+    // Try to get route from GraphHopper first
+    const ghRoute = await graphHopperService.getRoute(startPoint, destPoint);
+    
+    if (ghRoute && ghRoute.coordinates && ghRoute.coordinates.length > 0) {
+      console.log('GraphHopper route found successfully with', ghRoute.coordinates.length, 'points');
+      // Calculate safety score for the route
+      const safetyScore = calculateSafetyScoreForOSRMRoute(ghRoute.coordinates, roadRatings);
+      
+      // Prepare response with GraphHopper route details
+      const routeResponse = {
+        route: ghRoute.coordinates,
+        distance: ghRoute.distance,
+        estimatedTime: ghRoute.duration,
+        safetyScore: safetyScore,
+        routeType: 'graphhopper', // Indicate this is a GraphHopper calculated route
+        // Include detailed steps if available
+        steps: ghRoute.legs && ghRoute.legs.length > 0 ? 
+          ghRoute.legs.flatMap(leg => leg.steps) : []
+      };
+      
+      return res.status(200).json(routeResponse);
+    }
+    
+    console.log('GraphHopper route calculation failed, trying OSRM service...');
+    
+    // Fall back to OSRM if OpenRouteService fails
+    const osrmRoute = await osrmService.getRoute(startPoint, destPoint);
+    
+    if (osrmRoute && osrmRoute.coordinates && osrmRoute.coordinates.length > 0) {
+      console.log('OSRM route found successfully with', osrmRoute.coordinates.length, 'points');
+      // Calculate safety score for the OSRM route
+      const safetyScore = calculateSafetyScoreForOSRMRoute(osrmRoute.coordinates, roadRatings);
+      
+      // Prepare response with OSRM route details
+      const routeResponse = {
+        route: osrmRoute.coordinates,
+        distance: osrmRoute.distance,
+        estimatedTime: osrmRoute.duration,
+        safetyScore: safetyScore,
+        routeType: 'osrm', // Indicate this is an OSRM calculated route
+        // Include detailed steps if available
+        steps: osrmRoute.legs && osrmRoute.legs.length > 0 ? 
+          osrmRoute.legs.flatMap(leg => leg.steps) : []
+      };
+      
+      return res.status(200).json(routeResponse);
+    }
+    
+    console.log('Both routing services failed, falling back to A* algorithm');
+    
+    // Fall back to A* algorithm if both services fail
     const startNode = {
       id: `node_${start.lat}_${start.lng}`,
       lat: start.lat,
@@ -67,38 +117,50 @@ exports.calculateRoute = async (req, res) => {
     };
     
     // Find the route using A* algorithm
+    console.log('Attempting A* route finding...');
     const route = findRoute(startNode, destinationNode, roadNetworkGraph, roadRatings);
     
-    if (!route) {
-      // For demo purposes, create a simple route if A* doesn't find one
-      const simpleRoute = createSimpleRoute(start, destination);
-      
-      // Prepare response with route details
+    if (route) {
+      console.log('A* algorithm found a route with', route.length, 'points');
+      // Prepare response with route details from A*
       const routeResponse = {
-        route: simpleRoute,
-        distance: calculateSimpleDistance(start, destination),
-        estimatedTime: calculateSimpleTime(start, destination),
-        safetyScore: 85 // Default good safety score for demo
+        route: route.map(node => ({
+          lat: node.lat,
+          lng: node.lng
+        })),
+        distance: calculateTotalDistance(route),
+        estimatedTime: calculateEstimatedTime(route, roadRatings),
+        safetyScore: calculateSafetyScore(route, roadRatings),
+        routeType: 'astar' // Indicate this is an A* calculated route
       };
       
       return res.status(200).json(routeResponse);
     }
     
+    console.log('A* algorithm failed to find route, creating simple direct route');
+    // Create a simple route if all routing methods fail
+    const simpleRoute = createSimpleRoute(start, destination);
+    
     // Prepare response with route details
     const routeResponse = {
-      route: route.map(node => ({
-        lat: node.lat,
-        lng: node.lng
-      })),
-      distance: calculateTotalDistance(route),
-      estimatedTime: calculateEstimatedTime(route, roadRatings),
-      safetyScore: calculateSafetyScore(route, roadRatings)
+      route: simpleRoute,
+      distance: calculateSimpleDistance(start, destination),
+      estimatedTime: calculateSimpleTime(start, destination),
+      safetyScore: 85, // Default good safety score for demo
+      routeType: 'direct' // Indicate this is a direct route (not following roads)
     };
     
-    res.status(200).json(routeResponse);
+    return res.status(200).json(routeResponse);
   } catch (error) {
     console.error('Route calculation error:', error);
-    res.status(500).json({ message: error.message });
+    // Provide a more detailed error message
+    const errorMessage = error.message || 'Unknown error occurred during route calculation';
+    res.status(500).json({ 
+      message: 'Failed to calculate route', 
+      details: errorMessage,
+      // Create a simple route as fallback
+      fallbackRoute: createSimpleRoute(req.body.start, req.body.destination)
+    });
   }
 };
 
@@ -130,6 +192,26 @@ function calculateSimpleTime(start, destination) {
   return (distance / averageSpeed) * 60; // Convert to minutes
 }
 
+// Haversine distance calculation function
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  // Earth's radius in kilometers
+  const R = 6371;
+  
+  // Convert latitude and longitude from degrees to radians
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  
+  // Haversine formula
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  
+  // Distance in kilometers
+  return R * c;
+}
+
 // Calculate the total distance of the route in kilometers
 function calculateTotalDistance(route) {
   let totalDistance = 0;
@@ -138,22 +220,11 @@ function calculateTotalDistance(route) {
     const point1 = route[i];
     const point2 = route[i + 1];
     
-    // Calculate distance between consecutive points
-    const lat1 = point1.lat;
-    const lon1 = point1.lng;
-    const lat2 = point2.lat;
-    const lon2 = point2.lng;
-    
-    // Haversine formula to calculate distance
-    const R = 6371; // Earth's radius in kilometers
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    const distance = R * c;
+    // Calculate distance between consecutive points using haversine formula
+    const distance = haversineDistance(
+      point1.lat, point1.lng, 
+      point2.lat, point2.lng
+    );
     
     totalDistance += distance;
   }
@@ -266,36 +337,81 @@ function calculateSafetyScore(route, roadRatings) {
   return Math.round(safetyPercentage);
 }
 
-// Get traffic data for a specific area
-exports.getTrafficData = async (req, res) => {
-  try {
-    const { north, south, east, west } = req.query;
-    
-    if (!north || !south || !east || !west) {
-      return res.status(400).json({ message: 'Missing boundary parameters' });
-    }
-
-    // Filter mock traffic data based on bounds
-    const trafficData = mockTrafficData.filter(segment => {
-      // Check if start point is within bounds
-      const startInBounds = 
-        segment.coordinates.start.lat <= parseFloat(north) && 
-        segment.coordinates.start.lat >= parseFloat(south) && 
-        segment.coordinates.start.lng <= parseFloat(east) && 
-        segment.coordinates.start.lng >= parseFloat(west);
-      
-      // Check if end point is within bounds
-      const endInBounds = 
-        segment.coordinates.end.lat <= parseFloat(north) && 
-        segment.coordinates.end.lat >= parseFloat(south) && 
-        segment.coordinates.end.lng <= parseFloat(east) && 
-        segment.coordinates.end.lng >= parseFloat(west);
-      
-      return startInBounds || endInBounds;
-    });
-
-    res.status(200).json(trafficData);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+// Calculate safety score for OSRM route
+function calculateSafetyScoreForOSRMRoute(routeCoordinates, roadRatings) {
+  if (!routeCoordinates || routeCoordinates.length < 2) {
+    return 85; // Default safety score if no valid route
   }
+  
+  let totalSegments = routeCoordinates.length - 1;
+  let badRoadSegments = 0;
+  
+  // Sample the route at regular intervals to check for bad road segments
+  // This is more efficient than checking every single point in a detailed route
+  const sampleInterval = Math.max(1, Math.floor(routeCoordinates.length / 20)); // Check up to 20 segments
+  
+  for (let i = 0; i < routeCoordinates.length - 1; i += sampleInterval) {
+    const point1 = routeCoordinates[i];
+    const point2 = routeCoordinates[Math.min(i + sampleInterval, routeCoordinates.length - 1)];
+    
+    // Find the closest road rating for this segment
+    const closestRating = findClosestRoadRating(point1, point2, roadRatings);
+    
+    if (closestRating && closestRating.rating === 'Bad') {
+      badRoadSegments++;
+    }
+  }
+  
+  // Adjust the total segments to match the number we actually checked
+  const adjustedTotalSegments = Math.ceil(totalSegments / sampleInterval);
+  
+  // Calculate safety percentage (higher is better)
+  const safetyPercentage = 100 - ((badRoadSegments / adjustedTotalSegments) * 100);
+  
+  return Math.round(safetyPercentage);
+}
+
+// Find the closest road rating to a segment
+function findClosestRoadRating(point1, point2, roadRatings) {
+  if (!roadRatings || roadRatings.length === 0) {
+    return null;
+  }
+  
+  // Calculate the midpoint of the segment
+  const midpoint = {
+    lat: (point1.lat + point2.lat) / 2,
+    lng: (point1.lng + point2.lng) / 2
+  };
+  
+  let closestRating = null;
+  let minDistance = Infinity;
+  
+  // Find the closest road rating by checking distance to midpoint
+  for (const rating of roadRatings) {
+    // Calculate midpoint of the rating segment
+    const ratingMidpoint = {
+      lat: (rating.coordinates.start.lat + rating.coordinates.end.lat) / 2,
+      lng: (rating.coordinates.start.lng + rating.coordinates.end.lng) / 2
+    };
+    
+    // Calculate distance between midpoints
+    const distance = haversineDistance(
+      midpoint.lat, midpoint.lng,
+      ratingMidpoint.lat, ratingMidpoint.lng
+    );
+    
+    if (distance < minDistance) {
+      minDistance = distance;
+      closestRating = rating;
+    }
+  }
+  
+  // Only return the rating if it's within a reasonable distance (5km)
+  return minDistance <= 5 ? closestRating : null;
+}
+
+// Traffic data functionality removed
+exports.getTrafficData = async (req, res) => {
+  // Return empty array since traffic functionality has been removed
+  res.status(200).json([]);
 };

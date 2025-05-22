@@ -130,15 +130,7 @@ const MapView = ({
     }
   };
 
-  // Get color based on traffic status
-  const getTrafficColor = (status) => {
-    switch (status) {
-      case 'Smooth': return '#28a745';
-      case 'Moderate': return '#ffc107';
-      case 'Congested': return '#dc3545';
-      default: return '#ffc107';
-    }
-  };
+  // No longer needed after removing traffic system
 
   return (
     <div className="map-container">
@@ -202,79 +194,29 @@ const MapView = ({
         
         {/* Route polyline */}
         {route && (
-          <Polyline 
-            positions={route.map(point => [point.lat, point.lng])}
-            color="#0078ff"
-            weight={6}
-            opacity={0.7}
-          />
+          <>
+            {/* Main route line */}
+            <Polyline 
+              positions={route.map(point => [point.lat, point.lng])}
+              color="#006400"
+              weight={6}
+              opacity={0.8}
+              smoothFactor={1}
+            />
+            {/* Route outline for better visibility */}
+            <Polyline 
+              positions={route.map(point => [point.lat, point.lng])}
+              color="#ffffff"
+              weight={9}
+              opacity={0.4}
+              smoothFactor={1}
+            />
+          </>
         )}
         
-        {/* Road ratings */}
-        {roadRatings.map((rating, index) => (
-          <Polyline 
-            key={`rating-${index}`}
-            positions={[
-              [rating.coordinates.start.lat, rating.coordinates.start.lng],
-              [rating.coordinates.end.lat, rating.coordinates.end.lng]
-            ]}
-            color={rating.rating === 'Good' ? '#28a745' : '#dc3545'}
-            weight={5}
-            opacity={0.6}
-            eventHandlers={{
-              click: (e) => handleRoadClick(e.originalEvent, rating)
-            }}
-          >
-            <Popup>
-              <div className="road-rating-popup">
-                <p className="font-semibold mb-2">Road Quality: {rating.rating}</p>
-                <p className="text-sm mb-2">Traffic: {rating.trafficStatus}</p>
-                <div className="flex justify-between">
-                  <button 
-                    className="good"
-                    onClick={() => submitRoadRating('Good')}
-                  >
-                    Good
-                  </button>
-                  <button 
-                    className="bad"
-                    onClick={() => submitRoadRating('Bad')}
-                  >
-                    Bad
-                  </button>
-                </div>
-              </div>
-            </Popup>
-          </Polyline>
-        ))}
+        {/* Road ratings removed */}
         
-        {/* Traffic data */}
-        {trafficData.map((segment, index) => (
-          <Polyline 
-            key={`traffic-${index}`}
-            positions={[
-              [segment.coordinates.start.lat, segment.coordinates.start.lng],
-              [segment.coordinates.end.lat, segment.coordinates.end.lng]
-            ]}
-            color={getTrafficColor(segment.trafficStatus)}
-            weight={4}
-            opacity={0.7}
-            dashArray="5, 10"
-          >
-            <Popup>
-              <div className="text-center">
-                <p className="font-semibold">Traffic Status</p>
-                <p className={`text-sm ${
-                  segment.trafficStatus === 'Smooth' ? 'text-success' : 
-                  segment.trafficStatus === 'Moderate' ? 'text-warning' : 
-                  'text-danger'
-                }`}>
-                  {segment.trafficStatus}
-                </p>
-              </div>
-            </Popup>
-          </Polyline>
-        ))}
+        {/* Traffic data removed */}
         
         {/* Road click for rating */}
         {selectedRoad && (
