@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow public read access to road ratings
+    match /roadRatings/{ratingId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // User profiles - only accessible by the authenticated user
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // User's favorite routes
+      match /favorites/{favoriteId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+    
+    // Route history - only accessible by the authenticated user
+    match /routeHistory/{historyId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false; // Immutable history
+    }
+  }
+}

@@ -1,13 +1,18 @@
 /**
  * OSRM (Open Source Routing Machine) service for the Safe Route application
  * This service integrates with the OSRM API to get realistic road routes
+ * Firebase Version
  */
 
 const axios = require('axios');
+const { db } = require('../firebase');
 
 // Base URL for OSRM API - using the demo server for development
 // In production, you should host your own OSRM instance or use a paid service
 const OSRM_BASE_URL = 'https://router.project-osrm.org';
+
+// Collection name for caching routes in Firestore
+const ROUTES_CACHE_COLLECTION = 'routes_cache';
 
 /**
  * Get a route between two points using OSRM
@@ -34,18 +39,41 @@ async function getRoute(start, destination, waypoints = []) {
     console.log(`Requesting OSRM route from ${start.lat},${start.lng} to ${destination.lat},${destination.lng}`);
     
     // Make request to OSRM API with timeout
-    const response = await axios.get(
-      `${OSRM_BASE_URL}/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true`,
-      { timeout: 10000 } // 10 second timeout
-    );
-    
-    if (response.status !== 200) {
-      console.error(`OSRM API returned status ${response.status}`);
-      return null;
-    }
-    
-    if (!response.data.routes || response.data.routes.length === 0) {
-      console.error('OSRM API returned no routes');
+    let response;
+    try {
+      const requestUrl = `${OSRM_BASE_URL}/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true`;
+      console.log('OSRM API request URL:', requestUrl);
+      
+      response = await axios.get(requestUrl, {
+        timeout: 10000, // 10 second timeout
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        validateStatus: status => status < 500 // Only treat 500+ errors as exceptions
+      });
+      
+      // Check if response is valid JSON
+      if (response.status !== 200) {
+        console.error(`OSRM API returned status ${response.status}`);
+        return null;
+      }
+      
+      // Verify we have valid JSON data
+      if (typeof response.data !== 'object') {
+        console.error('OSRM API returned non-JSON data:', typeof response.data);
+        return null;
+      }
+      
+      if (!response.data.routes || response.data.routes.length === 0) {
+        console.error('OSRM API returned no routes');
+        return null;
+      }
+    } catch (apiError) {
+      console.error('Error making OSRM API request:', apiError.message);
+      if (apiError.response) {
+        console.error('Response data:', apiError.response.data);
+      }
       return null;
     }
     
@@ -105,12 +133,37 @@ async function getDistanceMatrix(points) {
     const coordinates = points.map(p => `${p.lng},${p.lat}`).join(';');
     
     // Make request to OSRM API
-    const response = await axios.get(
-      `${OSRM_BASE_URL}/table/v1/driving/${coordinates}`
-    );
-    
-    if (response.status !== 200) {
-      throw new Error('Failed to get distance matrix from OSRM');
+    let response;
+    try {
+      const requestUrl = `${OSRM_BASE_URL}/table/v1/driving/${coordinates}`;
+      console.log('OSRM table API request URL:', requestUrl);
+      
+      response = await axios.get(requestUrl, {
+        timeout: 10000, // 10 second timeout
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        validateStatus: status => status < 500 // Only treat 500+ errors as exceptions
+      });
+      
+      // Check if response is valid JSON
+      if (response.status !== 200) {
+        console.error(`OSRM table API returned status ${response.status}`);
+        throw new Error('Failed to get distance matrix from OSRM');
+      }
+      
+      // Verify we have valid JSON data
+      if (typeof response.data !== 'object') {
+        console.error('OSRM table API returned non-JSON data:', typeof response.data);
+        throw new Error('OSRM table API returned invalid data format');
+      }
+    } catch (apiError) {
+      console.error('Error making OSRM table API request:', apiError.message);
+      if (apiError.response) {
+        console.error('Response data:', apiError.response.data);
+      }
+      throw apiError;
     }
     
     return {
@@ -140,18 +193,41 @@ async function getNearestRoad(coordinates) {
     const coordString = `${coordinates.lng},${coordinates.lat}`;
     
     // Make request to OSRM API with timeout
-    const response = await axios.get(
-      `${OSRM_BASE_URL}/nearest/v1/driving/${coordString}?number=1`,
-      { timeout: 5000 } // 5 second timeout
-    );
-    
-    if (response.status !== 200) {
-      console.error(`OSRM nearest API returned status ${response.status}`);
-      return null;
-    }
-    
-    if (!response.data.waypoints || response.data.waypoints.length === 0) {
-      console.error('OSRM nearest API returned no waypoints');
+    let response;
+    try {
+      const requestUrl = `${OSRM_BASE_URL}/nearest/v1/driving/${coordString}?number=1`;
+      console.log('OSRM nearest API request URL:', requestUrl);
+      
+      response = await axios.get(requestUrl, {
+        timeout: 5000, // 5 second timeout
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        validateStatus: status => status < 500 // Only treat 500+ errors as exceptions
+      });
+      
+      // Check if response is valid JSON
+      if (response.status !== 200) {
+        console.error(`OSRM nearest API returned status ${response.status}`);
+        return null;
+      }
+      
+      // Verify we have valid JSON data
+      if (typeof response.data !== 'object') {
+        console.error('OSRM nearest API returned non-JSON data:', typeof response.data);
+        return null;
+      }
+      
+      if (!response.data.waypoints || response.data.waypoints.length === 0) {
+        console.error('OSRM nearest API returned no waypoints');
+        return null;
+      }
+    } catch (apiError) {
+      console.error('Error making OSRM nearest API request:', apiError.message);
+      if (apiError.response) {
+        console.error('Response data:', apiError.response.data);
+      }
       return null;
     }
     

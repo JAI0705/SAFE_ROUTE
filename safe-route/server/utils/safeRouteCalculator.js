@@ -1,15 +1,21 @@
 /**
- * Safe Route Calculator
+ * Safe Route Calculator - Firebase Version
  * Utility to calculate routes prioritizing both safety and speed
  */
 const axios = require('axios');
+const RoadRatingModel = require('../models/RoadRating');
+const { db } = require('../firebase');
+const { safeApiRequest } = require('./apiHelper');
 
 // GraphHopper API configuration
-const GRAPHHOPPER_API_KEY = process.env.GRAPHHOPPER_API_KEY || 'demo-key';
+const GRAPHHOPPER_API_KEY = process.env.GRAPHHOPPER_API_KEY || 'fc4e0d67-e86e-4e8a-a142-e0c403914f5f';
 const GRAPHHOPPER_BASE_URL = 'https://graphhopper.com/api/1';
 
 // OSRM API configuration
-const OSRM_BASE_URL = 'https://router.project-osrm.org/route/v1/driving';
+const OSRM_BASE_URL = 'https://router.project-osrm.org';
+
+// Collection name for caching routes in Firestore
+const ROUTES_CACHE_COLLECTION = 'routes_cache';
 
 /**
  * Calculate the distance between two points using the Haversine formula
@@ -43,13 +49,18 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
  * Calculate a route that prioritizes safety based on road ratings
  * @param {Object} startPoint - Starting coordinates {lat, lng}
  * @param {Object} destPoint - Destination coordinates {lat, lng}
- * @param {Array} roadRatings - Array of road ratings from the database
  * @returns {Object} - Route details with coordinates, distance, duration, etc.
  */
-async function calculateSafeRoute(startPoint, destPoint, roadRatings) {
+async function calculateSafeRoute(startPoint, destPoint) {
   console.log('Calculating safe route with road ratings consideration');
   
   try {
+    // Get road ratings from Firebase for the area
+    const bounds = getBoundingBox(startPoint, destPoint);
+    const roadRatings = await getRoadRatings(bounds);
+    
+    console.log(`Found ${roadRatings.length} road ratings in the area`);
+    
     // First try to get multiple alternative routes from GraphHopper
     const alternativeRoutes = await getAlternativeRoutes(startPoint, destPoint);
     
@@ -85,6 +96,82 @@ async function calculateSafeRoute(startPoint, destPoint, roadRatings) {
 }
 
 /**
+ * Get road ratings from Firebase for a specific area
+ * @param {Object} bounds - Geographic bounds {north, south, east, west}
+ * @returns {Array} - Array of road ratings
+ */
+async function getRoadRatings(bounds) {
+  try {
+    console.log('Fetching road ratings from Firebase for bounds:', bounds);
+    
+    // Check if we have a cache entry for this area
+    const cacheKey = `${bounds.north.toFixed(3)}_${bounds.south.toFixed(3)}_${bounds.east.toFixed(3)}_${bounds.west.toFixed(3)}`;
+    const cacheRef = db.collection(ROUTES_CACHE_COLLECTION).doc(cacheKey);
+    const cacheDoc = await cacheRef.get();
+    
+    // If we have a recent cache (less than 1 hour old), use it
+    if (cacheDoc.exists) {
+      const cacheData = cacheDoc.data();
+      const cacheTime = cacheData.timestamp.toDate();
+      const now = new Date();
+      const cacheAgeMs = now - cacheTime;
+      
+      // Cache is valid for 1 hour (3600000 ms)
+      if (cacheAgeMs < 3600000) {
+        console.log('Using cached road ratings, cache age:', Math.round(cacheAgeMs / 1000), 'seconds');
+        return cacheData.ratings;
+      }
+      console.log('Cache expired, fetching fresh data');
+    }
+    
+    // Use the Firebase-based RoadRating model to get fresh data
+    const ratings = await RoadRatingModel.findByBounds(bounds);
+    
+    // Cache the results for future use
+    if (ratings && ratings.length > 0) {
+      await cacheRef.set({
+        ratings,
+        timestamp: new Date(),
+        bounds
+      });
+      console.log(`Cached ${ratings.length} road ratings for future use`);
+    }
+    
+    return ratings;
+  } catch (error) {
+    console.error('Error getting road ratings from Firebase:', error);
+    
+    // Try to get fallback data from the mockRoadRatings if available
+    try {
+      const { mockRoadRatings } = require('../controllers/ratingsController');
+      console.log('Using mock road ratings as fallback');
+      return mockRoadRatings || [];
+    } catch (fallbackError) {
+      console.error('Failed to get fallback ratings:', fallbackError);
+      return []; // Return empty array if all else fails
+    }
+  }
+}
+
+/**
+ * Calculate bounding box for an area between two points
+ * @param {Object} point1 - First point {lat, lng}
+ * @param {Object} point2 - Second point {lat, lng}
+ * @returns {Object} - Bounding box {north, south, east, west}
+ */
+function getBoundingBox(point1, point2) {
+  // Add a buffer around the points (about 5km in each direction)
+  const buffer = 0.05;
+  
+  return {
+    north: Math.max(point1.lat, point2.lat) + buffer,
+    south: Math.min(point1.lat, point2.lat) - buffer,
+    east: Math.max(point1.lng, point2.lng) + buffer,
+    west: Math.min(point1.lng, point2.lng) - buffer
+  };
+}
+
+/**
  * Get multiple alternative routes from GraphHopper
  * @param {Object} startPoint - Starting coordinates {lat, lng}
  * @param {Object} destPoint - Destination coordinates {lat, lng}
@@ -92,30 +179,53 @@ async function calculateSafeRoute(startPoint, destPoint, roadRatings) {
  */
 async function getAlternativeRoutes(startPoint, destPoint) {
   try {
-    // Request multiple alternative routes from GraphHopper
-    const url = `${GRAPHHOPPER_BASE_URL}/route?point=${startPoint.lat},${startPoint.lng}&point=${destPoint.lat},${destPoint.lng}&vehicle=car&alternative_route.max_paths=3&key=${GRAPHHOPPER_API_KEY}`;
+    console.log('Getting alternative routes from GraphHopper');
     
-    const response = await axios.get(url, { timeout: 10000 });
+    // Build the URL for GraphHopper API
+    const url = `${GRAPHHOPPER_BASE_URL}/route?point=${startPoint.lat},${startPoint.lng}&point=${destPoint.lat},${destPoint.lng}&vehicle=car&alternative_route.max_paths=3&key=${GRAPHHOPPER_API_KEY}&points_encoded=false`;
+    console.log('GraphHopper alternative routes API URL:', url);
     
-    if (response.status === 200 && response.data && response.data.paths) {
-      // Transform GraphHopper response to our format
-      return response.data.paths.map(path => {
-        // Extract coordinates from the encoded polyline
-        const coordinates = decodePolyline(path.points).map(point => ({
+    // Use the safe API request utility to handle errors and HTML responses
+    const data = await safeApiRequest(url, {
+      timeout: 10000,
+      method: 'get',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    // If no data or no paths, return empty array
+    if (!data || !data.paths || data.paths.length === 0) {
+      console.error('GraphHopper API returned no valid paths');
+      return [];
+    }
+    
+    // Transform the paths to our format
+    return data.paths.map(path => {
+      // Extract coordinates from the encoded polyline or use the coordinates directly
+      let coordinates;
+      if (path.points_encoded === false && path.points.coordinates) {
+        // If points are not encoded, use the coordinates directly
+        coordinates = path.points.coordinates.map(point => ({
+          lat: point[1],
+          lng: point[0]
+        }));
+      } else {
+        // Otherwise decode the polyline
+        coordinates = decodePolyline(path.points).map(point => ({
           lat: point[0],
           lng: point[1]
         }));
-        
-        return {
-          coordinates,
-          distance: path.distance / 1000, // Convert to km
-          duration: path.time / 60000, // Convert to minutes
-          routeType: 'graphhopper'
-        };
-      });
-    }
-    
-    return [];
+      }
+      
+      return {
+        coordinates,
+        distance: path.distance / 1000, // Convert to kilometers
+        time: path.time / 1000 / 60, // Convert to minutes
+        routeType: 'graphhopper'
+      };
+    });
   } catch (error) {
     console.error('Error getting alternative routes from GraphHopper:', error.message);
     return [];
@@ -130,28 +240,42 @@ async function getAlternativeRoutes(startPoint, destPoint) {
  */
 async function getOSRMRoute(startPoint, destPoint) {
   try {
-    const url = `${OSRM_BASE_URL}/${startPoint.lng},${startPoint.lat};${destPoint.lng},${destPoint.lat}?overview=full&geometries=geojson`;
+    // Request route from OSRM
+    const url = `${OSRM_BASE_URL}/route/v1/driving/${startPoint.lng},${startPoint.lat};${destPoint.lng},${destPoint.lat}?overview=full&geometries=geojson&steps=true`;
+    console.log('OSRM route API request URL:', url);
     
-    const response = await axios.get(url, { timeout: 10000 });
+    // Use the safe API request utility to handle errors and HTML responses
+    console.log('Making safe API request to OSRM:', url);
+    const data = await safeApiRequest(url, {
+      timeout: 10000,
+      method: 'get',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
     
-    if (response.status === 200 && response.data && response.data.routes && response.data.routes.length > 0) {
-      const route = response.data.routes[0];
-      
-      // Transform coordinates from GeoJSON format [lng, lat] to our format {lat, lng}
-      const coordinates = route.geometry.coordinates.map(coord => ({
-        lat: coord[1],
-        lng: coord[0]
-      }));
-      
-      return {
-        coordinates,
-        distance: route.distance / 1000, // Convert to km
-        duration: route.duration / 60, // Convert to minutes
-        routeType: 'osrm'
-      };
+    // If no data or no routes, return null
+    if (!data || !data.routes || data.routes.length === 0) {
+      console.error('OSRM API returned no valid routes');
+      return null;
     }
     
-    return null;
+    // Process the valid route data
+    const route = data.routes[0];
+    
+    // Transform OSRM response to our format
+    const coordinates = route.geometry.coordinates.map(coord => ({
+      lat: coord[1],
+      lng: coord[0]
+    }));
+    
+    return {
+      coordinates,
+      distance: route.distance / 1000, // Convert to kilometers
+      time: route.duration / 60, // Convert to minutes
+      routeType: 'osrm'
+    };
   } catch (error) {
     console.error('Error getting route from OSRM:', error.message);
     return null;
@@ -165,13 +289,16 @@ async function getOSRMRoute(startPoint, destPoint) {
  * @returns {Array} - Sorted array of routes with safety scores
  */
 function evaluateRoutes(routes, roadRatings) {
-  // Calculate safety score for each route
+  // Calculate safety and speed scores for each route
   const evaluatedRoutes = routes.map(route => {
+    // Calculate safety score (0-100, higher is better)
     const safetyScore = calculateSafetyScore(route.coordinates, roadRatings);
     
-    // Calculate a combined score that considers both safety and speed
-    // Weight: 70% safety, 30% speed (inverse of duration)
-    const speedScore = 100 - Math.min(100, (route.duration / 10)); // Normalize duration
+    // Calculate speed score based on estimated time (0-100, higher is better)
+    // Shorter time = higher score
+    const speedScore = Math.min(100, 100 * (60 / route.time));
+    
+    // Combined score with safety weighted more heavily
     const combinedScore = (safetyScore * 0.7) + (speedScore * 0.3);
     
     return {

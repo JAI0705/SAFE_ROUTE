@@ -1,0 +1,40 @@
+.auth-nav {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 20px;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.user-email {
+  font-size: 0.9rem;
+  color: #495057;
+}
+
+.logout-btn {
+  background-color: transparent;
+  color: #3a86ff;
+  border: 1px solid #3a86ff;
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.logout-btn:hover {
+  background-color: #3a86ff;
+  color: white;
+}
+
+@media (max-width: 768px) {
+  .user-email {
+    display: none;
+  }
+}

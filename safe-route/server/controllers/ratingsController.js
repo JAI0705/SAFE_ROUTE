@@ -1,6 +1,12 @@
-// const RoadRating = require('../models/RoadRating');
+/**
+ * Road Ratings Controller - Firebase Version
+ * Handles CRUD operations for road ratings stored in Firestore
+ */
 
-// Mock data for road ratings
+// Import the Firebase-based RoadRating model
+const RoadRatingModel = require('../models/RoadRating');
+
+// Fallback mock data for development/testing when Firebase is unavailable
 const mockRoadRatings = [
   {
     roadId: 'road_delhi_jaipur_1',
@@ -37,19 +43,26 @@ const mockRoadRatings = [
   }
 ];
 
-// In-memory storage for ratings added during the session
-let roadRatings = [...mockRoadRatings];
-
-// Export mock data for use in other controllers
+// Export mock data for use in other controllers when Firebase is unavailable
 module.exports.mockRoadRatings = mockRoadRatings;
 
 // Get all road ratings
 exports.getAllRatings = async (req, res) => {
   try {
-    // Return mock data instead of querying MongoDB
-    res.status(200).json(roadRatings);
+    // Fetch all road ratings from Firebase
+    const ratings = await RoadRatingModel.findAll();
+    
+    // If no ratings found or error, return mock data in development
+    if (!ratings || ratings.length === 0) {
+      console.log('No ratings found in Firebase, using mock data');
+      return res.status(200).json(mockRoadRatings);
+    }
+    
+    res.status(200).json(ratings);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error fetching ratings from Firebase:', error);
+    // Return mock data as fallback in case of error
+    res.status(200).json(mockRoadRatings);
   }
 };
 
@@ -62,27 +75,46 @@ exports.getRatingsInBounds = async (req, res) => {
       return res.status(400).json({ message: 'Missing boundary parameters' });
     }
 
-    // Filter mock data based on bounds
-    const ratings = roadRatings.filter(rating => {
-      // Check if start point is within bounds
-      const startInBounds = 
-        rating.coordinates.start.lat <= parseFloat(north) && 
-        rating.coordinates.start.lat >= parseFloat(south) && 
-        rating.coordinates.start.lng <= parseFloat(east) && 
-        rating.coordinates.start.lng >= parseFloat(west);
+    // Create bounds object for Firebase query
+    const bounds = {
+      north: parseFloat(north),
+      south: parseFloat(south),
+      east: parseFloat(east),
+      west: parseFloat(west)
+    };
+
+    // Get ratings from Firebase within bounds
+    const ratings = await RoadRatingModel.findByBounds(bounds);
+    
+    // If no ratings found or error, filter mock data as fallback
+    if (!ratings || ratings.length === 0) {
+      console.log('No ratings found in Firebase for bounds, using filtered mock data');
       
-      // Check if end point is within bounds
-      const endInBounds = 
-        rating.coordinates.end.lat <= parseFloat(north) && 
-        rating.coordinates.end.lat >= parseFloat(south) && 
-        rating.coordinates.end.lng <= parseFloat(east) && 
-        rating.coordinates.end.lng >= parseFloat(west);
+      // Filter mock data based on bounds
+      const mockRatingsInBounds = mockRoadRatings.filter(rating => {
+        // Check if start point is within bounds
+        const startInBounds = 
+          rating.coordinates.start.lat <= bounds.north && 
+          rating.coordinates.start.lat >= bounds.south && 
+          rating.coordinates.start.lng <= bounds.east && 
+          rating.coordinates.start.lng >= bounds.west;
+        
+        // Check if end point is within bounds
+        const endInBounds = 
+          rating.coordinates.end.lat <= bounds.north && 
+          rating.coordinates.end.lat >= bounds.south && 
+          rating.coordinates.end.lng <= bounds.east && 
+          rating.coordinates.end.lng >= bounds.west;
+        
+        return startInBounds || endInBounds;
+      });
       
-      return startInBounds || endInBounds;
-    });
+      return res.status(200).json(mockRatingsInBounds);
+    }
 
     res.status(200).json(ratings);
   } catch (error) {
+    console.error('Error fetching ratings by bounds from Firebase:', error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -96,20 +128,25 @@ exports.addRating = async (req, res) => {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
-    // Check if rating for this road segment already exists in our mock data
-    const existingRatingIndex = roadRatings.findIndex(r => r.roadId === roadId);
+    // Check if rating for this road segment already exists in Firebase
+    const existingRating = await RoadRatingModel.findByRoadId(roadId);
     
-    if (existingRatingIndex !== -1) {
-      // Update existing rating
-      roadRatings[existingRatingIndex].rating = rating;
-      if (trafficStatus) roadRatings[existingRatingIndex].trafficStatus = trafficStatus;
-      if (userId) roadRatings[existingRatingIndex].userId = userId;
+    if (existingRating) {
+      // Update existing rating in Firebase
+      const updatedRating = {
+        ...existingRating,
+        rating: rating,
+        trafficStatus: trafficStatus || existingRating.trafficStatus,
+        userId: userId || existingRating.userId,
+        updatedAt: new Date()
+      };
       
-      return res.status(200).json(roadRatings[existingRatingIndex]);
+      await RoadRatingModel.update(existingRating.id, updatedRating);
+      return res.status(200).json(updatedRating);
     }
 
-    // Create new rating
-    const newRating = {
+    // Create new rating data
+    const newRatingData = {
       roadId,
       coordinates,
       rating,
@@ -118,10 +155,11 @@ exports.addRating = async (req, res) => {
       createdAt: new Date()
     };
 
-    // Add to our in-memory array
-    roadRatings.push(newRating);
+    // Add to Firebase
+    const newRating = await RoadRatingModel.create(newRatingData);
     res.status(201).json(newRating);
   } catch (error) {
+    console.error('Error adding/updating rating in Firebase:', error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -136,16 +174,26 @@ exports.updateTrafficStatus = async (req, res) => {
       return res.status(400).json({ message: 'Missing traffic status' });
     }
 
-    const ratingIndex = roadRatings.findIndex(r => r.roadId === roadId);
+    // Find the rating in Firebase
+    const existingRating = await RoadRatingModel.findByRoadId(roadId);
     
-    if (ratingIndex === -1) {
+    if (!existingRating) {
       return res.status(404).json({ message: 'Road rating not found' });
     }
 
-    roadRatings[ratingIndex].trafficStatus = trafficStatus;
+    // Update the traffic status
+    const updatedRating = {
+      ...existingRating,
+      trafficStatus: trafficStatus,
+      updatedAt: new Date()
+    };
     
-    res.status(200).json(roadRatings[ratingIndex]);
+    // Save to Firebase
+    await RoadRatingModel.update(existingRating.id, updatedRating);
+    
+    res.status(200).json(updatedRating);
   } catch (error) {
+    console.error('Error updating traffic status in Firebase:', error);
     res.status(500).json({ message: error.message });
   }
 };
