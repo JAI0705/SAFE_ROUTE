@@ -36,16 +36,15 @@ async function getRoute(start, destination, waypoints = []) {
       `${destination.lng},${destination.lat}`
     ].join(';');
     
-    console.log(`Requesting OSRM route from ${start.lat},${start.lng} to ${destination.lat},${destination.lng}`);
+    // Build URL with detailed parameters to ensure accurate road following
+    const url = `${OSRM_BASE_URL}/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=false&annotations=true&generate_hints=false`;
+    console.log('OSRM route API request URL:', url);
     
     // Make request to OSRM API with timeout
     let response;
     try {
-      const requestUrl = `${OSRM_BASE_URL}/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true`;
-      console.log('OSRM API request URL:', requestUrl);
-      
-      response = await axios.get(requestUrl, {
-        timeout: 10000, // 10 second timeout
+      response = await axios.get(url, {
+        timeout: 15000, // 15 second timeout for detailed route calculation
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json'
@@ -79,9 +78,15 @@ async function getRoute(start, destination, waypoints = []) {
     
     const route = response.data.routes[0];
     
-    // Transform the route to our application's format
+    // Keep the original GeoJSON geometry for accurate road following
+    console.log('OSRM route received with geometry type:', route.geometry.type);
+    console.log(`OSRM route has ${route.geometry.coordinates.length} coordinate points`);
+    
+    // Transform the route to our application's format while preserving the GeoJSON geometry
     const transformedRoute = {
-      // Convert GeoJSON coordinates [lng, lat] to our format {lat, lng}
+      // Keep the original GeoJSON geometry
+      geometry: route.geometry,
+      // Also include coordinates in our app's format for backward compatibility
       coordinates: route.geometry.coordinates.map(coord => ({
         lat: coord[1],
         lng: coord[0]
@@ -92,13 +97,15 @@ async function getRoute(start, destination, waypoints = []) {
         distance: leg.distance / 1000,
         duration: leg.duration / 60,
         steps: leg.steps.map(step => ({
+          geometry: step.geometry, // Keep the original geometry for each step
           distance: step.distance / 1000,
           duration: step.duration / 60,
           name: step.name,
           maneuver: step.maneuver.type,
           instruction: step.maneuver.instruction
         }))
-      }))
+      })),
+      routeType: 'osrm'
     };
     
     return transformedRoute;

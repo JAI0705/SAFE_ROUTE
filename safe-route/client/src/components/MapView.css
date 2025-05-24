@@ -1,0 +1,140 @@
+/* Styles for route segments */
+.clickable-route-segment {
+  cursor: pointer;
+}
+
+/* Segment tooltip styles */
+.segment-tooltip {
+  font-size: 14px;
+  padding: 5px;
+}
+
+/* Segment rating popup styles */
+.segment-rating-popup {
+  text-align: center;
+  padding: 5px;
+}
+
+.road-rating-popup {
+  min-width: 220px;
+}
+
+.road-rating-popup h4 {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+  color: #2c3e50;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 8px;
+}
+
+.road-rating-popup h5 {
+  margin: 15px 0 8px 0;
+  font-size: 14px;
+  color: #34495e;
+}
+
+.road-rating-popup p {
+  margin: 5px 0;
+  font-size: 14px;
+  text-align: left;
+}
+
+.segment-details {
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 10px;
+  text-align: left;
+  border-left: 3px solid #3498db;
+}
+
+/* Rating status styling */
+.rating-good {
+  color: #2ecc71;
+  font-weight: bold;
+}
+
+.rating-bad {
+  color: #e74c3c;
+  font-weight: bold;
+}
+
+.good-count {
+  color: #2ecc71;
+}
+
+.bad-count {
+  color: #e74c3c;
+}
+
+.rating-buttons {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.rating-buttons button {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s ease;
+  width: 48%;
+}
+
+.good-button {
+  background-color: #2ecc71;
+  color: white;
+}
+
+.good-button:hover {
+  background-color: #27ae60;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.bad-button {
+  background-color: #e74c3c;
+  color: white;
+}
+
+.bad-button:hover {
+  background-color: #c0392b;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.rating-help {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #7f8c8d;
+  font-style: italic;
+}
+
+/* Toast notification styles */
+.toast-notification {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 5px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  animation: fadeInOut 3s ease;
+}
+
+.toast-content {
+  display: flex;
+  align-items: center;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { opacity: 0; }
+}

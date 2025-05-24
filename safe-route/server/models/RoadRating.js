@@ -57,24 +57,88 @@ const RoadRatingModel = {
     try {
       const { north, south, east, west } = bounds;
       
-      // Query for road ratings within the bounds
-      // Note: Firestore has limitations with compound queries
-      // This is a simplified approach that may need optimization
-      let query = db.collection(COLLECTION)
-        .where('coordinates.start.lat', '<=', north)
-        .where('coordinates.start.lat', '>=', south);
+      console.log(`Finding road ratings within bounds: N:${north}, S:${south}, E:${east}, W:${west}`);
+      
+      // Check if we have area field to use for more accurate querying
+      let query;
+      
+      try {
+        // Try to use the area field for more accurate querying
+        query = db.collection(COLLECTION)
+          .where('area.south', '<=', north) // Area's south edge is below the north boundary
+          .where('area.north', '>=', south); // Area's north edge is above the south boundary
+      } catch (queryError) {
+        console.warn('Error with area query, falling back to coordinates query:', queryError);
+        // Fallback to the original query method
+        query = db.collection(COLLECTION)
+          .where('coordinates.start.lat', '<=', north)
+          .where('coordinates.start.lat', '>=', south);
+      }
       
       const snapshot = await query.get();
+      console.log(`Found ${snapshot.size} potential ratings in latitude range`);
       
       // Filter results further client-side for longitude
-      return snapshot.docs
+      const filteredRatings = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(rating => 
-          rating.coordinates.start.lng >= west && 
-          rating.coordinates.start.lng <= east
-        );
+        .filter(rating => {
+          // If we have area field, use it for more accurate filtering
+          if (rating.area) {
+            return !(rating.area.west > east || rating.area.east < west);
+          }
+          
+          // Otherwise fall back to coordinates
+          return rating.coordinates.start.lng >= west && 
+                 rating.coordinates.start.lng <= east;
+        });
+      
+      console.log(`Filtered to ${filteredRatings.length} ratings within bounds`);
+      return filteredRatings;
     } catch (error) {
       console.error('Error finding road ratings by bounds:', error);
+      throw error;
+    }
+  },
+  
+  /**
+   * Get all road ratings
+   * @returns {Array} - Array of road ratings
+   */
+  async findAll() {
+    try {
+      const snapshot = await db.collection(COLLECTION).get();
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (error) {
+      console.error('Error finding all road ratings:', error);
+      throw error;
+    }
+  },
+  
+  /**
+   * Find a road rating by segment ID
+   * @param {String} segmentId - Segment ID
+   * @returns {Object} - Road rating data or null if not found
+   */
+  async findByRoadId(segmentId) {
+    try {
+      console.log(`Finding road rating for segment ID: ${segmentId}`);
+      
+      // Query for road ratings with the given segment ID
+      const snapshot = await db.collection(COLLECTION)
+        .where('id', '==', segmentId)
+        .limit(1)
+        .get();
+      
+      if (snapshot.empty) {
+        console.log(`No rating found for segment ID: ${segmentId}`);
+        return null;
+      }
+      
+      const doc = snapshot.docs[0];
+      console.log(`Found rating for segment ID: ${segmentId}`);
+      return { id: doc.id, ...doc.data() };
+    } catch (error) {
+      console.error(`Error finding road rating by segment ID ${segmentId}:`, error);
       throw error;
     }
   },

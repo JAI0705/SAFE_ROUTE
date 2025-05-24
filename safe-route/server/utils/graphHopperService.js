@@ -34,14 +34,21 @@ async function getRoute(start, destination, waypoints = []) {
 
     console.log(`Requesting GraphHopper route from ${start.lat},${start.lng} to ${destination.lat},${destination.lng}`);
     
-    // Build the query parameters
+    // Build the query parameters with enhanced settings for more detailed road following
     const params = {
       key: GRAPHHOPPER_API_KEY,
       vehicle: 'car',
       locale: 'en',
       instructions: true,
       calc_points: true,
-      points_encoded: false
+      points_encoded: false,
+      elevation: false,
+      details: 'road_class,road_environment,surface',
+      algorithm: 'alternative_route',
+      'ch.disable': true, // Disable contraction hierarchies for more precise routing
+      'point_hint': '', // Empty point hint to ensure the exact points are used
+      'snap_prevention': 'ferry', // Avoid ferries if possible
+      max_visited_nodes: 5000 // Allow more nodes to be visited for better precision
     };
     
     // Build the URL with query parameters
@@ -106,9 +113,22 @@ async function getRoute(start, destination, waypoints = []) {
     const points = route.points.coordinates;
     const instructions = route.instructions || [];
     
-    // Transform the route to our application's format
+    // Convert GraphHopper points to GeoJSON format for consistent handling
+    console.log(`GraphHopper route has ${points.length} coordinate points`);
+    
+    // Create a GeoJSON geometry object from the points
+    const geoJsonGeometry = {
+      type: 'LineString',
+      coordinates: points // GraphHopper already provides coordinates in [lng, lat] format
+    };
+    
+    console.log('Created GeoJSON geometry from GraphHopper response');
+    
+    // Transform the route to our application's format with GeoJSON geometry
     const transformedRoute = {
-      // Convert coordinates to our format {lat, lng}
+      // Include the GeoJSON geometry
+      geometry: geoJsonGeometry,
+      // Also include coordinates in our app's format for backward compatibility
       coordinates: points.map(coord => ({
         lat: coord[1],
         lng: coord[0]
@@ -119,13 +139,19 @@ async function getRoute(start, destination, waypoints = []) {
         distance: route.distance / 1000,
         duration: route.time / 60000,
         steps: instructions.map(instruction => ({
+          // Create a GeoJSON geometry for each step if possible
+          geometry: instruction.points ? {
+            type: 'LineString',
+            coordinates: instruction.points.coordinates || []
+          } : null,
           distance: instruction.distance / 1000,
           duration: instruction.time / 60000,
           name: instruction.street_name || '',
           instruction: instruction.text || '',
           maneuver: instruction.sign || 0
         }))
-      }]
+      }],
+      routeType: 'graphhopper'
     };
     
     return transformedRoute;

@@ -259,36 +259,50 @@ const Sidebar = ({
         )}
         
         {/* Route information */}
-        {routeInfo && !loading && (
+        {routeInfo && (
           <div className="bg-gray-50 p-4 rounded-lg mb-4">
             <h3 className="font-bold text-lg mb-2">Route Details</h3>
             
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-gray-500 text-sm">Distance</p>
-                <p className="font-semibold">{formatDistance(routeInfo.distance)}</p>
+            {/* Show loading state or route details */}
+            {loading || routeInfo.status ? (
+              <div className="flex items-center justify-center py-4">
+                <div className="animate-pulse flex space-x-2 items-center">
+                  <div className="rounded-full bg-blue-400 h-3 w-3 animate-bounce"></div>
+                  <div className="rounded-full bg-blue-400 h-3 w-3 animate-bounce delay-75"></div>
+                  <div className="rounded-full bg-blue-400 h-3 w-3 animate-bounce delay-150"></div>
+                  <span className="ml-2 text-blue-600">{routeInfo.status || 'Calculating route...'}</span>
+                </div>
               </div>
-              
-              <div>
-                <p className="text-gray-500 text-sm">Estimated Time</p>
-                <p className="font-semibold">{formatTime(routeInfo.estimatedTime)}</p>
-              </div>
-            </div>
-            
-            <div className="mt-3">
-              <p className="text-gray-500 text-sm">Safety Score</p>
-              <div className="w-full bg-gray-200 rounded-full h-2.5 mt-1">
-                <div 
-                  className={`h-2.5 rounded-full ${
-                    routeInfo.safetyScore >= 80 ? 'bg-success' : 
-                    routeInfo.safetyScore >= 50 ? 'bg-warning' : 
-                    'bg-danger'
-                  }`}
-                  style={{ width: `${routeInfo.safetyScore}%` }}
-                ></div>
-              </div>
-              <p className="text-right text-xs mt-1">{routeInfo.safetyScore}%</p>
-            </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-gray-500 text-sm">Distance</p>
+                    <p className="font-semibold">{formatDistance(routeInfo.distance)}</p>
+                  </div>
+                  
+                  <div>
+                    <p className="text-gray-500 text-sm">Estimated Time</p>
+                    <p className="font-semibold">{formatTime(routeInfo.estimatedTime)}</p>
+                  </div>
+                </div>
+                
+                <div className="mt-3">
+                  <p className="text-gray-500 text-sm">Safety Score</p>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5 mt-1">
+                    <div 
+                      className={`h-2.5 rounded-full ${
+                        routeInfo.safetyScore >= 80 ? 'bg-success' : 
+                        routeInfo.safetyScore >= 50 ? 'bg-warning' : 
+                        'bg-danger'
+                      }`}
+                      style={{ width: `${routeInfo.safetyScore}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-right text-xs mt-1">{routeInfo.safetyScore}%</p>
+                </div>
+              </>
+            )}
           </div>
         )}
         

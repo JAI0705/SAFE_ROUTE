@@ -11,6 +11,9 @@ router.get('/bounds', ratingsController.getRatingsInBounds);
 // Add a new rating
 router.post('/', ratingsController.addRating);
 
+// Rate a road segment
+router.post('/rate', ratingsController.addRating);
+
 // Update traffic status
 router.patch('/:roadId/traffic', ratingsController.updateTrafficStatus);
 

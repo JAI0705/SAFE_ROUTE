@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import axios from 'axios';
 import { 
   MapContainer, 
   TileLayer, 
@@ -7,36 +8,37 @@ import {
   useMap, 
   Polyline,
   useMapEvents,
-  CircleMarker
+  CircleMarker,
+  GeoJSON
 } from 'react-leaflet';
+import './MapView.css';
 import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 
-// Fix for Leaflet marker icons
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-
-let DefaultIcon = L.icon({
-  iconUrl: icon,
-  shadowUrl: iconShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41]
-});
-
-L.Marker.prototype.options.icon = DefaultIcon;
-
-// Custom marker icons
+// Custom icons for markers
 const createCustomIcon = (type) => {
-  return L.divIcon({
-    className: `custom-marker-icon ${type}`,
-    html: type === 'user' ? 
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="18px" height="18px"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>' :
-      type === 'start' ?
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="18px" height="18px"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>' :
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="18px" height="18px"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>',
-    iconSize: [30, 30],
-    iconAnchor: [15, 30]
+  const iconUrl = type === 'user' 
+    ? '/icons/user-location.png' 
+    : type === 'start' 
+      ? '/icons/start-marker.png'
+      : '/icons/destination-marker.png';
+  
+  return L.icon({
+    iconUrl,
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
   });
+};
+
+// Component to center map on a position
+const CenterMap = ({ position }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (position) {
+      map.flyTo([position.lat, position.lng], 13);
+    }
+  }, [map, position]);
+  return null;
 };
 
 // Component to handle map events
@@ -44,81 +46,34 @@ const MapEvents = ({ onBoundsChange }) => {
   const map = useMapEvents({
     moveend: () => {
       const bounds = map.getBounds();
-      const boundsData = {
+      onBoundsChange && onBoundsChange({
         north: bounds.getNorth(),
         south: bounds.getSouth(),
         east: bounds.getEast(),
         west: bounds.getWest()
-      };
-      
-      // Store bounds in a hidden element for access from outside the component
-      const mapBoundsEl = document.getElementById('mapBounds');
-      if (mapBoundsEl) {
-        mapBoundsEl.dataset.north = boundsData.north;
-        mapBoundsEl.dataset.south = boundsData.south;
-        mapBoundsEl.dataset.east = boundsData.east;
-        mapBoundsEl.dataset.west = boundsData.west;
-      }
-      
-      onBoundsChange(boundsData);
-    },
-    zoomend: () => {
-      const bounds = map.getBounds();
-      const boundsData = {
-        north: bounds.getNorth(),
-        south: bounds.getSouth(),
-        east: bounds.getEast(),
-        west: bounds.getWest()
-      };
-      
-      // Store bounds in a hidden element for access from outside the component
-      const mapBoundsEl = document.getElementById('mapBounds');
-      if (mapBoundsEl) {
-        mapBoundsEl.dataset.north = boundsData.north;
-        mapBoundsEl.dataset.south = boundsData.south;
-        mapBoundsEl.dataset.east = boundsData.east;
-        mapBoundsEl.dataset.west = boundsData.west;
-      }
-      
-      onBoundsChange(boundsData);
-    }
-  });
-  
-  return null;
-};
-
-// Component to center map on user location
-const CenterMap = ({ position }) => {
-  const map = useMap();
-  
-  useEffect(() => {
-    if (position) {
-      map.flyTo([position.lat, position.lng], 13, {
-        animate: true,
-        duration: 1.5
       });
     }
-  }, [map, position]);
-  
+  });
   return null;
 };
 
 const MapView = ({ 
   userLocation, 
-  startLocation,
+  startLocation, 
+  setStartLocation, 
   destination, 
+  setDestination, 
   route, 
-  roadRatings, 
-  routeSegments,
-  trafficData, 
-  onBoundsChange, 
-  onRoadRating 
+  routeSegments = [],
+  onRouteUpdate,
+  onRateRoad
 }) => {
-  const [mapCenter, setMapCenter] = useState([20.5937, 78.9629]); // Default center of India
+  const [mapCenter, setMapCenter] = useState([20.5937, 78.9629]); // Center of India
   const [mapZoom, setMapZoom] = useState(5);
   const [selectedRoad, setSelectedRoad] = useState(null);
-
-  // Update map center when user location is available
+  const mapRef = useRef(null);
+  
+  // Update map center when user location changes
   useEffect(() => {
     if (userLocation) {
       setMapCenter([userLocation.lat, userLocation.lng]);
@@ -126,137 +81,264 @@ const MapView = ({
     }
   }, [userLocation]);
   
-  // Update map center when route is available
-  useEffect(() => {
-    try {
-      if (route && Array.isArray(route) && route.length > 0) {
-        // Validate route points
-        const validPoints = route.filter(point => 
-          point && typeof point.lat === 'number' && typeof point.lng === 'number'
+  // Handle map click for setting start and destination
+  const handleMapClick = useCallback((e) => {
+    const { lat, lng } = e.latlng;
+    
+    if (!startLocation) {
+      setStartLocation({ lat, lng });
+    } else if (!destination) {
+      setDestination({ lat, lng });
+    }
+  }, [startLocation, destination, setStartLocation, setDestination]);
+  
+  // Handle route click
+  const handleRouteClick = useCallback((e) => {
+    console.log('Route clicked at:', e.latlng);
+  }, []);
+  
+  // Handle bounds change
+  const handleBoundsChange = useCallback((bounds) => {
+    // This can be used to fetch road ratings for the visible area
+    console.log('Map bounds changed:', bounds);
+  }, []);
+  
+  // Handle rating a road segment
+  const handleRateRoad = useCallback((segmentId, rating) => {
+    if (onRateRoad && segmentId) {
+      onRateRoad(segmentId, rating);
+      setSelectedRoad(null);
+    }
+  }, [onRateRoad]);
+  
+  // Function to calculate distance between two points in kilometers
+  const calculateDistance = (lat1, lng1, lat2, lng2) => {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // Distance in km
+  };
+  
+  // Function to create 2km segments from a GeoJSON LineString
+  const createSegmentsFromGeoJSON = useCallback((geometry, segmentLengthKm = 2) => {
+    if (!geometry || geometry.type !== 'LineString' || !geometry.coordinates || geometry.coordinates.length < 2) {
+      console.error('Invalid GeoJSON geometry for segmentation');
+      return [];
+    }
+    
+    const coordinates = geometry.coordinates;
+    const segments = [];
+    let currentSegment = [];
+    let segmentDistance = 0;
+    let segmentId = 1;
+    
+    // Add the first point to the current segment
+    currentSegment.push(coordinates[0]);
+    
+    // Process all coordinates to create segments
+    for (let i = 1; i < coordinates.length; i++) {
+      const prevCoord = coordinates[i-1];
+      const currentCoord = coordinates[i];
+      
+      // Calculate distance between these two points
+      const pointDistance = calculateDistance(
+        prevCoord[1], prevCoord[0], // [lng, lat] to [lat, lng]
+        currentCoord[1], currentCoord[0]
+      );
+      
+      // If adding this point would exceed the segment length
+      if (segmentDistance + pointDistance > segmentLengthKm) {
+        // Calculate how far along the line we need to go to reach exactly segmentLengthKm
+        const remainingDistance = segmentLengthKm - segmentDistance;
+        const ratio = remainingDistance / pointDistance;
+        
+        // Interpolate a point at exactly segmentLengthKm distance
+        const interpolatedPoint = [
+          prevCoord[0] + (currentCoord[0] - prevCoord[0]) * ratio,
+          prevCoord[1] + (currentCoord[1] - prevCoord[1]) * ratio
+        ];
+        
+        // Add the interpolated point to complete the current segment
+        currentSegment.push(interpolatedPoint);
+        
+        // Create the segment object
+        segments.push({
+          id: `segment-${segmentId}`,
+          coordinates: {
+            start: { lng: currentSegment[0][0], lat: currentSegment[0][1] },
+            end: { lng: interpolatedPoint[0], lat: interpolatedPoint[1] }
+          },
+          distance: segmentLengthKm,
+          points: currentSegment,
+          rating: 'Unknown',
+          ratingCount: 0,
+          goodRatingCount: 0,
+          badRatingCount: 0
+        });
+        
+        // Start a new segment from the interpolated point
+        currentSegment = [interpolatedPoint];
+        segmentDistance = 0;
+        segmentId++;
+        
+        // Now add the current point and calculate the remaining distance
+        const remainingPointDistance = calculateDistance(
+          interpolatedPoint[1], interpolatedPoint[0],
+          currentCoord[1], currentCoord[0]
         );
         
-        if (validPoints.length > 0) {
-          // Calculate center of route
-          const bounds = L.latLngBounds(validPoints.map(point => [point.lat, point.lng]));
-          setMapCenter([bounds.getCenter().lat, bounds.getCenter().lng]);
-          setMapZoom(12);
-        }
-      }
-    } catch (error) {
-      console.error('Error updating map center based on route:', error);
-      // Fallback to default center if there's an error
-      if (startLocation) {
-        setMapCenter([startLocation.lat, startLocation.lng]);
-      } else if (userLocation) {
-        setMapCenter([userLocation.lat, userLocation.lng]);
+        currentSegment.push(currentCoord);
+        segmentDistance += remainingPointDistance;
+      } else {
+        // Add the point to the current segment
+        currentSegment.push(currentCoord);
+        segmentDistance += pointDistance;
       }
     }
-  }, [route, startLocation, userLocation]);
-
-  // Update map center when start location is selected
-  useEffect(() => {
-    if (startLocation) {
-      setMapCenter([startLocation.lat, startLocation.lng]);
-      setMapZoom(13);
-    }
-  }, [startLocation]);
-
-  // Handle road click for rating
-  const handleRoadClick = (event, roadSegment) => {
-    // Prevent map click event
-    if (event && event.originalEvent) {
-      L.DomEvent.stopPropagation(event.originalEvent);
-    }
     
-    setSelectedRoad(roadSegment);
-    
-    // Log for debugging
-    console.log('Road segment selected for rating:', roadSegment);
-  };
-
-  // Handle click on the main route - optimized version
-  const handleRouteClick = (event) => {
-    // Prevent default behaviors and propagation
-    if (event && event.originalEvent) {
-      L.DomEvent.stopPropagation(event.originalEvent);
-    }
-    
-    // Get the click location
-    const clickLatLng = event.latlng;
-    
-    // Create a simplified road segment from the click location
-    // We'll use a minimal object with just what we need
-    const roadSegment = {
-      id: `route_click_${Date.now()}`,
-      coordinates: {
-        start: {
-          lat: clickLatLng.lat - 0.0005,
-          lng: clickLatLng.lng - 0.0005
+    // If we have a partial segment at the end, add it
+    if (currentSegment.length > 1 && segmentDistance > 0.1) {
+      segments.push({
+        id: `segment-${segmentId}`,
+        coordinates: {
+          start: { lng: currentSegment[0][0], lat: currentSegment[0][1] },
+          end: { lng: currentSegment[currentSegment.length-1][0], lat: currentSegment[currentSegment.length-1][1] }
         },
-        end: {
-          lat: clickLatLng.lat + 0.0005,
-          lng: clickLatLng.lng + 0.0005
-        }
-      },
-      clickPoint: clickLatLng
-    };
-    
-    // Set the selected road immediately
-    setSelectedRoad(roadSegment);
-  };
-
-  // Submit road rating - fixed version to prevent stuck popups
-  const submitRoadRating = (rating) => {
-    if (selectedRoad) {
-      // First close the popup to prevent it from getting stuck
-      setSelectedRoad(null);
-      
-      // Then submit the rating (after popup is closed)
-      setTimeout(() => {
-        try {
-          onRoadRating(
-            selectedRoad.id,
-            selectedRoad.coordinates,
-            rating
-          );
-        } catch (error) {
-          console.error('Error submitting road rating:', error);
-        }
-      }, 10);
+        distance: segmentDistance,
+        points: currentSegment,
+        rating: 'Unknown',
+        ratingCount: 0,
+        goodRatingCount: 0,
+        badRatingCount: 0
+      });
     }
-  };
-
-  // No longer needed after removing traffic system
-
+    
+    console.log(`Created ${segments.length} segments from route with ${coordinates.length} points`);
+    return segments;
+  }, []);
+  
+  // Function to fetch a route directly from OSRM API
+  const fetchOsrmRoute = useCallback(async (start, end) => {
+    if (!start || !end) return null;
+    
+    try {
+      // Format coordinates for OSRM (lng,lat format)
+      const coordinates = `${start.lng},${start.lat};${end.lng},${end.lat}`;
+      
+      // Build URL with detailed parameters to ensure accurate road following
+      const url = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=false&annotations=true`;
+      
+      console.log('Fetching route directly from OSRM API:', url);
+      
+      // Make request to OSRM API
+      const response = await axios.get(url, {
+        timeout: 15000, // 15 second timeout
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.status !== 200 || !response.data || !response.data.routes || response.data.routes.length === 0) {
+        console.error('Invalid OSRM response:', response.data);
+        return null;
+      }
+      
+      const osrmRoute = response.data.routes[0];
+      console.log('OSRM route received:', osrmRoute);
+      
+      // Return the GeoJSON feature
+      return {
+        type: 'Feature',
+        properties: {
+          distance: osrmRoute.distance,
+          duration: osrmRoute.duration,
+          source: 'osrm-direct'
+        },
+        geometry: osrmRoute.geometry
+      };
+    } catch (error) {
+      console.error('Error fetching OSRM route:', error);
+      return null;
+    }
+  }, []);
+  
+  // State for the direct OSRM route
+  const [directRouteGeoJSON, setDirectRouteGeoJSON] = useState(null);
+  const [routeSegmentsFromGeoJSON, setRouteSegmentsFromGeoJSON] = useState([]);
+  
+  // Fetch direct route when start and destination change
+  useEffect(() => {
+    if (startLocation && destination) {
+      // Clear any existing route data when fetching a new route
+      setDirectRouteGeoJSON(null);
+      setRouteSegmentsFromGeoJSON([]);
+      
+      fetchOsrmRoute(startLocation, destination)
+        .then(geoJson => {
+          if (geoJson) {
+            console.log('Setting direct OSRM route GeoJSON');
+            
+            // Create 2km segments from the GeoJSON route
+            const segments = createSegmentsFromGeoJSON(geoJson.geometry, 2);
+            console.log(`Created ${segments.length} segments of 2km each`);
+            
+            // Set the segments
+            setRouteSegmentsFromGeoJSON(segments);
+            
+            // Set the direct route GeoJSON
+            setDirectRouteGeoJSON(geoJson);
+            
+            // Clear any existing route from the parent component
+            if (onRouteUpdate) {
+              onRouteUpdate(null);
+            }
+          }
+        })
+        .catch(error => console.error('Failed to fetch direct route:', error));
+    }
+  }, [startLocation, destination, fetchOsrmRoute, createSegmentsFromGeoJSON, onRouteUpdate]);
+  
+  // Memoize segment handling to prevent unnecessary rerenders
+  const handleSegmentClickMemo = useCallback((segment) => {
+    console.log('Segment clicked:', segment);
+    setSelectedRoad(segment);
+  }, []);
+  
   return (
     <div className="map-container">
-      {/* Hidden element to store map bounds */}
-      <div id="mapBounds" style={{ display: 'none' }} data-north="90" data-south="-90" data-east="180" data-west="-180"></div>
-      
       <MapContainer 
         center={mapCenter} 
         zoom={mapZoom} 
         style={{ height: '100%', width: '100%' }}
+        ref={mapRef}
+        onClick={handleMapClick}
       >
+        {/* Base map layer */}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         
         {/* Map events handler */}
-        <MapEvents onBoundsChange={onBoundsChange} />
+        <MapEvents onBoundsChange={handleBoundsChange} />
         
         {/* Center map on user location */}
         {userLocation && <CenterMap position={userLocation} />}
         
         {/* User location marker */}
-        {userLocation && !startLocation && (
+        {userLocation && (
           <Marker 
-            position={[userLocation.lat, userLocation.lng]} 
+            position={[userLocation.lat, userLocation.lng]}
             icon={createCustomIcon('user')}
           >
             <Popup>
-              <div className="text-center">
+              <div>
                 <strong>Your Location</strong>
               </div>
             </Popup>
@@ -266,11 +348,11 @@ const MapView = ({
         {/* Start location marker */}
         {startLocation && (
           <Marker 
-            position={[startLocation.lat, startLocation.lng]} 
+            position={[startLocation.lat, startLocation.lng]}
             icon={createCustomIcon('start')}
           >
             <Popup>
-              <div className="text-center">
+              <div>
                 <strong>Start Location</strong>
               </div>
             </Popup>
@@ -280,229 +362,82 @@ const MapView = ({
         {/* Destination marker */}
         {destination && (
           <Marker 
-            position={[destination.lat, destination.lng]} 
+            position={[destination.lat, destination.lng]}
             icon={createCustomIcon('destination')}
           >
             <Popup>
-              <div className="text-center">
+              <div>
                 <strong>Destination</strong>
               </div>
             </Popup>
           </Marker>
         )}
         
-        {/* Route polyline with error handling */}
-        {route && Array.isArray(route) && route.length > 1 && (
-          <>
-            {/* Route outline for better visibility */}
-            <Polyline 
-              positions={route.filter(point => point && typeof point.lat === 'number' && typeof point.lng === 'number')
-                .map(point => [point.lat, point.lng])}
-              color="#ffffff"
-              weight={9}
-              opacity={0.4}
-              smoothFactor={1}
-            />
-            {/* Main route line - clickable for rating */}
-            <Polyline 
-              positions={route.map(point => [point.lat, point.lng])}
-              pathOptions={{
-                color: '#006400',
-                weight: 6,
-                opacity: 0.8,
-                smoothFactor: 1,
-                className: 'clickable-main-route'
-              }}
-              eventHandlers={{
-                click: handleRouteClick,
-                mouseover: (e) => {
-                  // Simplified style change
-                  e.target.setStyle({
-                    weight: 8,
-                    color: '#008000'
-                  });
-                },
-                mouseout: (e) => {
-                  // Simplified style change
-                  e.target.setStyle({
-                    weight: 6,
-                    color: '#006400'
-                  });
-                }
-              }}
-            />
-          </>
+        {/* Only render the direct OSRM route with GeoJSON for accurate road following */}
+        {directRouteGeoJSON && (
+          <GeoJSON 
+            data={directRouteGeoJSON}
+            style={() => ({
+              color: '#3388ff',
+              weight: 5,
+              opacity: 0.7
+            })}
+            eventHandlers={{
+              click: handleRouteClick
+            }}
+          />
         )}
         
-        {/* Road ratings visualization */}
-        {roadRatings && roadRatings.map((rating, index) => (
-          rating && rating.coordinates && rating.coordinates.start && rating.coordinates.end ? (
-            <Polyline 
-              key={`rating-${rating.roadId || index}-${index}`}
-              positions={[
-                [rating.coordinates.start.lat, rating.coordinates.start.lng],
-                [rating.coordinates.end.lat, rating.coordinates.end.lng]
-              ]}
-              color={rating.rating === 'Good' ? '#28a745' : '#dc3545'}
-              weight={4}
-              opacity={0.6}
-              dashArray={rating.rating === 'Good' ? '' : '5, 10'}
-            />
-          ) : null
+        {/* 2km Route segments for rating */}
+        {routeSegmentsFromGeoJSON.map((segment, index) => (
+          <Polyline
+            key={segment.id}
+            positions={segment.points.map(point => [point[1], point[0]])}
+            color={segment.rating === 'Good' ? '#4CAF50' : 
+                  segment.rating === 'Bad' ? '#F44336' : 
+                  '#FFC107'}
+            weight={5}
+            opacity={0.7}
+            eventHandlers={{
+              click: () => handleSegmentClickMemo(segment)
+            }}
+          />
         ))}
         
-        {/* 2 km segments for rating that follow the actual road */}
-        {routeSegments && routeSegments.length > 0 && routeSegments.map((segment, index) => {
-          if (!segment) return null;
-          return (
-            <React.Fragment key={`segment-container-${segment.id || index}-${index}`}>
-              {/* The segment line */}
-              {segment.points ? (
-                <Polyline 
-                  key={`segment-${segment.id || index}-${index}`}
-                  positions={segment.points}
-                  pathOptions={{
-                    color: '#006400',
-                    weight: 8,
-                    opacity: 0.7,
-                    className: 'clickable-route-segment'
-                  }}
-                  eventHandlers={{
-                    click: (e) => {
-                      console.log('2km road segment clicked:', segment);
-                      handleRoadClick(e, segment);
-                    },
-                    mouseover: (e) => {
-                      e.target.setStyle({
-                        weight: 10,
-                        color: '#008000'
-                      });
-                    },
-                    mouseout: (e) => {
-                      e.target.setStyle({
-                        weight: 8,
-                        color: '#006400'
-                      });
-                    }
-                  }}
-                />
-              ) : segment.coordinates && segment.coordinates.start && segment.coordinates.end ? (
-                <Polyline 
-                  key={`segment-${segment.id || index}-${index}`}
-                  positions={[
-                    [segment.coordinates.start.lat, segment.coordinates.start.lng],
-                    [segment.coordinates.end.lat, segment.coordinates.end.lng]
-                  ]}
-                  pathOptions={{
-                    color: '#006400',
-                    weight: 8,
-                    opacity: 0.7,
-                    className: 'clickable-route-segment'
-                  }}
-                  eventHandlers={{
-                    click: (e) => {
-                      console.log('2km road segment clicked:', segment);
-                      handleRoadClick(e, segment);
-                    },
-                    mouseover: (e) => {
-                      e.target.setStyle({
-                        weight: 10,
-                        color: '#008000'
-                      });
-                    },
-                    mouseout: (e) => {
-                      e.target.setStyle({
-                        weight: 8,
-                        color: '#006400'
-                      });
-                    }
-                  }}
-                />
-              ) : null}
-            
-              {/* Segment divider markers */}
-              {index > 0 && segment.coordinates && segment.coordinates.start && (
-                <CircleMarker
-                  center={[
-                    segment.coordinates.start.lat,
-                    segment.coordinates.start.lng
-                  ]}
-                  radius={4}
-                  pathOptions={{
-                    color: '#ffffff',
-                    fillColor: '#006400',
-                    fillOpacity: 1,
-                    weight: 2
-                  }}
-                />
-              )}
-            </React.Fragment>
-          );
-        })}
-        
-        {/* Traffic data removed */}
-        
-        {/* Road click for rating - with improved popup handling */}
-        {selectedRoad && selectedRoad.coordinates && selectedRoad.coordinates.start && selectedRoad.coordinates.end && (
+        {/* Road rating popup with enhanced information */}
+        {selectedRoad && (
           <Popup
             position={[
-              selectedRoad.clickPoint ? selectedRoad.clickPoint.lat : (selectedRoad.coordinates.start.lat + selectedRoad.coordinates.end.lat) / 2,
-              selectedRoad.clickPoint ? selectedRoad.clickPoint.lng : (selectedRoad.coordinates.start.lng + selectedRoad.coordinates.end.lng) / 2
+              (selectedRoad.coordinates.start.lat + selectedRoad.coordinates.end.lat) / 2,
+              (selectedRoad.coordinates.start.lng + selectedRoad.coordinates.end.lng) / 2
             ]}
             onClose={() => setSelectedRoad(null)}
-            closeButton={true}
-            autoClose={true}
-            closeOnClick={false}
+            className="segment-rating-popup"
           >
-            <div className="road-rating-popup" style={{ padding: '10px', textAlign: 'center' }}>
-              <p style={{ fontWeight: 'bold', marginBottom: '5px' }}>Rate this road segment:</p>
-              {selectedRoad.distanceKm && (
-                <p style={{ fontSize: '12px', marginBottom: '10px', color: '#555' }}>
-                  ~{selectedRoad.distanceKm} km segment
-                </p>
-              )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
+            <div className="road-rating-popup">
+              <h4>2km Road Segment Rating</h4>
+              
+              {/* Show segment details */}
+              <div className="segment-details">
+                <p><strong>Segment ID:</strong> {selectedRoad.id}</p>
+                <p><strong>Distance:</strong> {selectedRoad.distance.toFixed(2)} km</p>
+                <p><strong>Current Rating:</strong> {selectedRoad.rating || 'Not rated'}</p>
+                <p><strong>Rating Count:</strong> {selectedRoad.ratingCount || 0}</p>
+              </div>
+              
+              {/* Rating buttons */}
+              <div className="rating-buttons">
                 <button 
-                  style={{ 
-                    backgroundColor: '#28a745', 
-                    color: 'white', 
-                    border: 'none', 
-                    padding: '8px 16px', 
-                    borderRadius: '4px', 
-                    cursor: 'pointer' 
-                  }}
-                  onClick={() => submitRoadRating('Good')}
+                  className="good-button"
+                  onClick={() => handleRateRoad(selectedRoad.id, 'Good')}
                 >
                   Good Road
                 </button>
                 <button 
-                  style={{ 
-                    backgroundColor: '#dc3545', 
-                    color: 'white', 
-                    border: 'none', 
-                    padding: '8px 16px', 
-                    borderRadius: '4px', 
-                    cursor: 'pointer' 
-                  }}
-                  onClick={() => submitRoadRating('Bad')}
+                  className="bad-button"
+                  onClick={() => handleRateRoad(selectedRoad.id, 'Bad')}
                 >
                   Bad Road
-                </button>
-              </div>
-              <div style={{ marginTop: '10px' }}>
-                <button 
-                  style={{ 
-                    backgroundColor: '#6c757d', 
-                    color: 'white', 
-                    border: 'none', 
-                    padding: '5px 10px', 
-                    borderRadius: '4px', 
-                    cursor: 'pointer',
-                    fontSize: '12px'
-                  }}
-                  onClick={() => setSelectedRoad(null)}
-                >
-                  Cancel
                 </button>
               </div>
             </div>

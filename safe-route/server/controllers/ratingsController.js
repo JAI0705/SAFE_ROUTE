@@ -119,27 +119,42 @@ exports.getRatingsInBounds = async (req, res) => {
   }
 };
 
-// Add a new road rating
+// Add a new road rating for a route segment
 exports.addRating = async (req, res) => {
   try {
-    const { roadId, coordinates, rating, trafficStatus, userId } = req.body;
+    const { id, coordinates, rating, ratingCount, badRatingCount, area } = req.body;
     
-    if (!roadId || !coordinates || !rating) {
+    if (!id || !coordinates || !rating) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
-    // Check if rating for this road segment already exists in Firebase
-    const existingRating = await RoadRatingModel.findByRoadId(roadId);
+    // Check if rating for this segment already exists
+    const existingRating = await RoadRatingModel.findByRoadId(id);
     
     if (existingRating) {
-      // Update existing rating in Firebase
+      // Update existing rating with new counts
+      const newRatingCount = (existingRating.ratingCount || 0) + 1;
+      const newBadRatingCount = rating === 'Bad' 
+        ? (existingRating.badRatingCount || 0) + 1 
+        : (existingRating.badRatingCount || 0);
+      
+      // Calculate the majority rating
+      const majorityRating = newBadRatingCount > newRatingCount / 2 ? 'Bad' : 'Good';
+      
       const updatedRating = {
         ...existingRating,
-        rating: rating,
-        trafficStatus: trafficStatus || existingRating.trafficStatus,
-        userId: userId || existingRating.userId,
+        rating: majorityRating,
+        ratingCount: newRatingCount,
+        badRatingCount: newBadRatingCount,
         updatedAt: new Date()
       };
+      
+      // If area is provided, update it
+      if (area) {
+        updatedRating.area = area;
+      }
+      
+      console.log(`Updating existing rating for segment ${id}:`, updatedRating);
       
       await RoadRatingModel.update(existingRating.id, updatedRating);
       return res.status(200).json(updatedRating);
@@ -147,19 +162,29 @@ exports.addRating = async (req, res) => {
 
     // Create new rating data
     const newRatingData = {
-      roadId,
+      id,
       coordinates,
       rating,
-      trafficStatus: trafficStatus || 'Moderate',
-      userId: userId || 'anonymous',
-      createdAt: new Date()
+      ratingCount: ratingCount || 1,
+      badRatingCount: rating === 'Bad' ? 1 : 0,
+      area: area || {
+        // Calculate area from coordinates if not provided
+        north: Math.max(coordinates.start.lat, coordinates.end.lat) + 0.01,
+        south: Math.min(coordinates.start.lat, coordinates.end.lat) - 0.01,
+        east: Math.max(coordinates.start.lng, coordinates.end.lng) + 0.01,
+        west: Math.min(coordinates.start.lng, coordinates.end.lng) - 0.01
+      },
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
 
-    // Add to Firebase
+    console.log(`Adding new rating for segment ${id}:`, newRatingData);
+    
+    // Add to database
     const newRating = await RoadRatingModel.create(newRatingData);
     res.status(201).json(newRating);
   } catch (error) {
-    console.error('Error adding/updating rating in Firebase:', error);
+    console.error('Error adding/updating segment rating:', error);
     res.status(500).json({ message: error.message });
   }
 };
