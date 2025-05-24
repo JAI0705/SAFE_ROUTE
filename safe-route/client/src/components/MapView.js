@@ -126,6 +126,33 @@ const MapView = ({
     }
   }, [userLocation]);
   
+  // Update map center when route is available
+  useEffect(() => {
+    try {
+      if (route && Array.isArray(route) && route.length > 0) {
+        // Validate route points
+        const validPoints = route.filter(point => 
+          point && typeof point.lat === 'number' && typeof point.lng === 'number'
+        );
+        
+        if (validPoints.length > 0) {
+          // Calculate center of route
+          const bounds = L.latLngBounds(validPoints.map(point => [point.lat, point.lng]));
+          setMapCenter([bounds.getCenter().lat, bounds.getCenter().lng]);
+          setMapZoom(12);
+        }
+      }
+    } catch (error) {
+      console.error('Error updating map center based on route:', error);
+      // Fallback to default center if there's an error
+      if (startLocation) {
+        setMapCenter([startLocation.lat, startLocation.lng]);
+      } else if (userLocation) {
+        setMapCenter([userLocation.lat, userLocation.lng]);
+      }
+    }
+  }, [route, startLocation, userLocation]);
+
   // Update map center when start location is selected
   useEffect(() => {
     if (startLocation) {
@@ -264,12 +291,13 @@ const MapView = ({
           </Marker>
         )}
         
-        {/* Route polyline */}
-        {route && (
+        {/* Route polyline with error handling */}
+        {route && Array.isArray(route) && route.length > 1 && (
           <>
             {/* Route outline for better visibility */}
             <Polyline 
-              positions={route.map(point => [point.lat, point.lng])}
+              positions={route.filter(point => point && typeof point.lat === 'number' && typeof point.lng === 'number')
+                .map(point => [point.lat, point.lng])}
               color="#ffffff"
               weight={9}
               opacity={0.4}
@@ -308,78 +336,114 @@ const MapView = ({
         
         {/* Road ratings visualization */}
         {roadRatings && roadRatings.map((rating, index) => (
-          <Polyline 
-            key={`rating-${rating.roadId}-${index}`}
-            positions={[
-              [rating.coordinates.start.lat, rating.coordinates.start.lng],
-              [rating.coordinates.end.lat, rating.coordinates.end.lng]
-            ]}
-            color={rating.rating === 'Good' ? '#28a745' : '#dc3545'}
-            weight={4}
-            opacity={0.6}
-            dashArray={rating.rating === 'Good' ? '' : '5, 10'}
-          />
+          rating && rating.coordinates && rating.coordinates.start && rating.coordinates.end ? (
+            <Polyline 
+              key={`rating-${rating.roadId || index}-${index}`}
+              positions={[
+                [rating.coordinates.start.lat, rating.coordinates.start.lng],
+                [rating.coordinates.end.lat, rating.coordinates.end.lng]
+              ]}
+              color={rating.rating === 'Good' ? '#28a745' : '#dc3545'}
+              weight={4}
+              opacity={0.6}
+              dashArray={rating.rating === 'Good' ? '' : '5, 10'}
+            />
+          ) : null
         ))}
         
         {/* 2 km segments for rating that follow the actual road */}
-        {routeSegments && routeSegments.length > 0 && routeSegments.map((segment, index) => (
-          <React.Fragment key={`segment-container-${segment.id}-${index}`}>
-            {/* The segment line */}
-            <Polyline 
-              key={`segment-${segment.id}-${index}`}
-              positions={segment.points || [
-                [segment.coordinates.start.lat, segment.coordinates.start.lng],
-                [segment.coordinates.end.lat, segment.coordinates.end.lng]
-              ]}
-              pathOptions={{
-                color: '#006400',
-                weight: 8,
-                opacity: 0.7,
-                className: 'clickable-route-segment'
-              }}
-              eventHandlers={{
-                click: (e) => {
-                  console.log('2km road segment clicked:', segment);
-                  handleRoadClick(e, segment);
-                },
-                mouseover: (e) => {
-                  e.target.setStyle({
-                    weight: 10,
-                    color: '#008000'
-                  });
-                },
-                mouseout: (e) => {
-                  e.target.setStyle({
+        {routeSegments && routeSegments.length > 0 && routeSegments.map((segment, index) => {
+          if (!segment) return null;
+          return (
+            <React.Fragment key={`segment-container-${segment.id || index}-${index}`}>
+              {/* The segment line */}
+              {segment.points ? (
+                <Polyline 
+                  key={`segment-${segment.id || index}-${index}`}
+                  positions={segment.points}
+                  pathOptions={{
+                    color: '#006400',
                     weight: 8,
-                    color: '#006400'
-                  });
-                }
-              }}
-            />
+                    opacity: 0.7,
+                    className: 'clickable-route-segment'
+                  }}
+                  eventHandlers={{
+                    click: (e) => {
+                      console.log('2km road segment clicked:', segment);
+                      handleRoadClick(e, segment);
+                    },
+                    mouseover: (e) => {
+                      e.target.setStyle({
+                        weight: 10,
+                        color: '#008000'
+                      });
+                    },
+                    mouseout: (e) => {
+                      e.target.setStyle({
+                        weight: 8,
+                        color: '#006400'
+                      });
+                    }
+                  }}
+                />
+              ) : segment.coordinates && segment.coordinates.start && segment.coordinates.end ? (
+                <Polyline 
+                  key={`segment-${segment.id || index}-${index}`}
+                  positions={[
+                    [segment.coordinates.start.lat, segment.coordinates.start.lng],
+                    [segment.coordinates.end.lat, segment.coordinates.end.lng]
+                  ]}
+                  pathOptions={{
+                    color: '#006400',
+                    weight: 8,
+                    opacity: 0.7,
+                    className: 'clickable-route-segment'
+                  }}
+                  eventHandlers={{
+                    click: (e) => {
+                      console.log('2km road segment clicked:', segment);
+                      handleRoadClick(e, segment);
+                    },
+                    mouseover: (e) => {
+                      e.target.setStyle({
+                        weight: 10,
+                        color: '#008000'
+                      });
+                    },
+                    mouseout: (e) => {
+                      e.target.setStyle({
+                        weight: 8,
+                        color: '#006400'
+                      });
+                    }
+                  }}
+                />
+              ) : null}
             
-            {/* Segment divider markers */}
-            {index > 0 && (
-              <CircleMarker
-                center={[
-                  segment.coordinates.start.lat,
-                  segment.coordinates.start.lng
-                ]}
-                radius={4}
-                pathOptions={{
-                  color: '#ffffff',
-                  fillColor: '#006400',
-                  fillOpacity: 1,
-                  weight: 2
-                }}
-              />
-            )}
-          </React.Fragment>
-        ))}
+              {/* Segment divider markers */}
+              {index > 0 && segment.coordinates && segment.coordinates.start && (
+                <CircleMarker
+                  center={[
+                    segment.coordinates.start.lat,
+                    segment.coordinates.start.lng
+                  ]}
+                  radius={4}
+                  pathOptions={{
+                    color: '#ffffff',
+                    fillColor: '#006400',
+                    fillOpacity: 1,
+                    weight: 2
+                  }}
+                />
+              )}
+            </React.Fragment>
+          );
+        })}
         
         {/* Traffic data removed */}
         
         {/* Road click for rating - with improved popup handling */}
-        {selectedRoad && (
+        {selectedRoad && selectedRoad.coordinates && selectedRoad.coordinates.start && selectedRoad.coordinates.end && (
           <Popup
             position={[
               selectedRoad.clickPoint ? selectedRoad.clickPoint.lat : (selectedRoad.coordinates.start.lat + selectedRoad.coordinates.end.lat) / 2,

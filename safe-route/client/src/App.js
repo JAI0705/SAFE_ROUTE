@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Component } from 'react';
 import { MapContainer, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import './styles/App.css';
@@ -15,6 +15,51 @@ import { mockRouteData } from './mockData';
 
 // Import Firebase services
 import { calculateRoute as firebaseCalculateRoute } from './firebase/firebaseService';
+
+// Error Boundary component to prevent the entire app from crashing
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    // Update state so the next render will show the fallback UI
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    // Log the error to console
+    console.error('Error caught by error boundary:', error, errorInfo);
+    this.setState({ error, errorInfo });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      // Fallback UI when an error occurs
+      return (
+        <div className="error-boundary" style={{ padding: '20px', textAlign: 'center', color: '#721c24', backgroundColor: '#f8d7da', border: '1px solid #f5c6cb', borderRadius: '5px', margin: '20px' }}>
+          <h2>Something went wrong</h2>
+          <p>We're sorry, but there was an error loading this page. Please try refreshing the page or try again later.</p>
+          <details style={{ whiteSpace: 'pre-wrap', textAlign: 'left', marginTop: '10px' }}>
+            <summary>Show error details</summary>
+            {this.state.error && this.state.error.toString()}
+            <br />
+            {this.state.errorInfo && this.state.errorInfo.componentStack}
+          </details>
+          <button 
+            onClick={() => window.location.reload()} 
+            style={{ marginTop: '15px', padding: '8px 16px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+          >
+            Refresh Page
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 function App() {
   const [userLocation, setUserLocation] = useState(null);
@@ -101,9 +146,12 @@ function App() {
     setRouteInfo(null);
   };
 
-  // Calculate route using Firebase service
+  // Calculate route using Firebase service with enhanced error handling
   const calculateRoute = async () => {
-    if (!startLocation || !destination) return;
+    if (!startLocation || !destination) {
+      console.log('Missing start or destination, cannot calculate route');
+      return;
+    }
     
     setLoading(true);
     setError(null);
@@ -112,50 +160,129 @@ function App() {
       console.log('Calculating route from', startLocation, 'to', destination);
       console.log('Safety prioritization:', prioritizeSafety ? 'Enabled' : 'Disabled');
       
-      // Calculate route using Firebase service
-      let data = await firebaseCalculateRoute(startLocation, destination, prioritizeSafety);
-      
-      // If the calculation failed, use mock data
-      if (!data) {
-        console.log('Error calculating route, using mock data instead');
-        // Use mock data as fallback
-        data = { ...mockRouteData };
-        
-        // Adjust mock data to use the actual start and destination
-        if (data.route && data.route.length > 1) {
-          data.route[0] = { ...startLocation };
-          data.route[data.route.length - 1] = { ...destination };
-        }
+      // Defensive programming - ensure we have valid coordinates
+      if (!startLocation.lat || !startLocation.lng || !destination.lat || !destination.lng) {
+        throw new Error('Invalid coordinates in start or destination');
       }
       
-      console.log('Route data:', data);
+      // Calculate route using Firebase service
+      console.log('Calling firebaseCalculateRoute with:', startLocation, destination, prioritizeSafety);
+      let routeData = null;
       
-      // Set the route and route info
-      setRoute(data.route);
-      setRouteInfo({
-        distance: data.distance,
-        estimatedTime: data.estimatedTime,
-        safetyScore: data.safetyScore || 75,
-        routeType: data.routeType || 'standard',
-        isSafeRoute: data.routeType === 'safe-route'
-      });
+      try {
+        routeData = await firebaseCalculateRoute(startLocation, destination, prioritizeSafety);
+        console.log('Route data returned:', routeData);
+      } catch (serviceError) {
+        console.error('Firebase route calculation failed:', serviceError);
+        throw new Error(`Firebase route calculation failed: ${serviceError.message}`);
+      }
       
-      // Create route segments for rating
-      if (data.route.length > 1) {
-        console.log('Creating route segments from route with', data.route.length, 'points');
-        const segments = createRouteSegments(data.route);
-        console.log('Created segments:', segments);
-        setRouteSegments(segments);
+      if (routeData && routeData.route && routeData.route.length > 0) {
+        console.log('Valid route data received with', routeData.route.length, 'points');
+        
+        // Validate route data before using it
+        const validRoute = routeData.route.every(point => 
+          point && typeof point.lat === 'number' && typeof point.lng === 'number'
+        );
+        
+        if (!validRoute) {
+          console.error('Invalid route data received:', routeData.route);
+          throw new Error('Invalid route data: contains invalid coordinates');
+        }
+        
+        // Set route data
+        setRoute(routeData.route);
+        
+        // Create route segments for road rating
+        console.log('Creating route segments');
+        try {
+          const segments = createRouteSegments(routeData.route);
+          console.log('Created segments:', segments.length);
+          setRouteSegments(segments);
+        } catch (segmentError) {
+          console.error('Error creating route segments:', segmentError);
+          // Continue without segments
+          setRouteSegments([]);
+        }
+        
+        // Set route info
+        setRouteInfo({
+          distance: routeData.distance || 0,
+          estimatedTime: routeData.estimatedTime || 0,
+          safetyScore: routeData.safetyScore || 80,
+          isSafeRoute: prioritizeSafety,
+          routeType: routeData.routeType || 'standard'
+        });
       } else {
-        console.warn('Not enough route points to create segments');
-        setRouteSegments([]);
+        console.log('No valid route data received, creating simple route');
+        
+        // Create a simple route if no route data is received
+        try {
+          const simpleRoute = createSimpleRoute(startLocation, destination);
+          console.log('Created simple route with', simpleRoute.length, 'points');
+          setRoute(simpleRoute);
+          
+          // Create route segments for the simple route
+          const segments = createRouteSegments(simpleRoute);
+          setRouteSegments(segments);
+          
+          // Calculate simple distance and time
+          const distance = calculateSimpleDistance(startLocation, destination);
+          const estimatedTime = calculateSimpleTime(startLocation, destination);
+          
+          // Set route info for simple route
+          setRouteInfo({
+            distance,
+            estimatedTime,
+            safetyScore: 75, // Default safety score for simple routes
+            isSafeRoute: false,
+            routeType: 'simple'
+          });
+        } catch (simpleRouteError) {
+          console.error('Error creating simple route:', simpleRouteError);
+          throw new Error(`Failed to create simple route: ${simpleRouteError.message}`);
+        }
       }
     } catch (error) {
       console.error('Error calculating route:', error);
-      setError(error.message);
-      setRoute(null);
-      setRouteInfo(null);
-      setRouteSegments([]);
+      
+      // Show error message but don't blank the screen
+      setError(`Error calculating route: ${error.message}`);
+      
+      // Create a fallback route instead of blanking the screen
+      try {
+        console.log('Creating emergency fallback route due to error');
+        
+        // Super simple fallback - just a straight line between points
+        const emergencyRoute = [
+          { lat: startLocation.lat, lng: startLocation.lng },
+          { lat: destination.lat, lng: destination.lng }
+        ];
+        
+        console.log('Emergency route created:', emergencyRoute);
+        setRoute(emergencyRoute);
+        
+        // Don't try to create segments for the emergency route
+        setRouteSegments([]);
+        
+        // Calculate very basic distance and time
+        const distance = calculateSimpleDistance(startLocation, destination);
+        const estimatedTime = calculateSimpleTime(startLocation, destination);
+        
+        setRouteInfo({
+          distance,
+          estimatedTime,
+          safetyScore: 50, // Lower safety score for emergency fallback routes
+          isSafeRoute: false,
+          routeType: 'emergency-fallback'
+        });
+      } catch (fallbackError) {
+        console.error('Even emergency fallback route calculation failed:', fallbackError);
+        // Clear all route data as last resort
+        setRoute([]);
+        setRouteSegments([]);
+        setRouteInfo(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -445,4 +572,13 @@ function App() {
   );
 }
 
-export default App;
+// Wrap the App component with the ErrorBoundary
+const SafeApp = () => {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+};
+
+export default SafeApp;

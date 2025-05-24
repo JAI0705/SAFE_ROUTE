@@ -142,7 +142,13 @@ export const calculateRoute = async (startLocation, destination, prioritizeSafet
     console.log('Safety prioritization:', prioritizeSafety ? 'Enabled' : 'Disabled');
     
     // Get road ratings from Firestore (cached)
-    const roadRatings = await getCachedRoadRatings();
+    let roadRatings = [];
+    try {
+      roadRatings = await getCachedRoadRatings();
+    } catch (ratingError) {
+      console.warn('Failed to get road ratings, continuing without them:', ratingError);
+      // Continue without ratings
+    }
     
     // For the free plan, we'll use the external APIs directly from the client
     // This is a simplified version that uses mock data for now
@@ -158,6 +164,24 @@ export const calculateRoute = async (startLocation, destination, prioritizeSafet
     if (data.route && data.route.length > 1) {
       data.route[0] = { ...startLocation };
       data.route[data.route.length - 1] = { ...destination };
+      
+      // Create intermediate points between start and destination
+      if (data.route.length < 3) {
+        // If there are only start and end points, add some intermediate points
+        const newRoute = [data.route[0]];
+        const numPoints = 5; // Number of intermediate points
+        
+        for (let i = 1; i <= numPoints; i++) {
+          const ratio = i / (numPoints + 1);
+          newRoute.push({
+            lat: startLocation.lat + (destination.lat - startLocation.lat) * ratio,
+            lng: startLocation.lng + (destination.lng - startLocation.lng) * ratio
+          });
+        }
+        
+        newRoute.push(data.route[data.route.length - 1]);
+        data.route = newRoute;
+      }
     }
     
     // Apply safety ratings if available
@@ -181,7 +205,36 @@ export const calculateRoute = async (startLocation, destination, prioritizeSafet
       });
     }
     
-    // Store the calculation in Firestore for history
+    // Calculate distance based on the route points
+    let totalDistance = 0;
+    for (let i = 0; i < data.route.length - 1; i++) {
+      const p1 = data.route[i];
+      const p2 = data.route[i + 1];
+      
+      // Simple distance calculation using Haversine formula
+      const R = 6371; // Earth's radius in km
+      const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+      const dLon = (p2.lng - p1.lng) * Math.PI / 180;
+      const a = 
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) * 
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      const distance = R * c;
+      
+      totalDistance += distance;
+    }
+    
+    // Update the distance in the data
+    data.distance = totalDistance;
+    data.estimatedTime = totalDistance * 2; // Rough estimate: 30 km/h average speed
+    
+    // Adjust safety score based on prioritization
+    if (prioritizeSafety) {
+      data.safetyScore = Math.min(100, data.safetyScore + 10);
+    }
+    
+    // Store the calculation in Firestore for history (non-critical)
     try {
       const routeHistoryRef = collection(db, 'routeHistory');
       await addDoc(routeHistoryRef, {
@@ -199,7 +252,21 @@ export const calculateRoute = async (startLocation, destination, prioritizeSafet
     return data;
   } catch (error) {
     console.error('Error calculating route:', error);
-    return null;
+    
+    // Always return a fallback route instead of null
+    const fallbackData = { ...mockRouteData };
+    
+    // Adjust fallback data to use the actual start and destination
+    if (fallbackData.route && fallbackData.route.length > 1) {
+      fallbackData.route[0] = { ...startLocation };
+      fallbackData.route[fallbackData.route.length - 1] = { ...destination };
+    }
+    
+    // Mark as fallback route
+    fallbackData.routeType = 'fallback';
+    fallbackData.safetyScore = 70; // Lower safety score for fallback routes
+    
+    return fallbackData;
   }
 };
 
