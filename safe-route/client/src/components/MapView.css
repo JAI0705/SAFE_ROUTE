@@ -1,6 +1,66 @@
 /* Styles for route segments */
-.clickable-route-segment {
+.clickable-route-segment,
+.route-segment {
   cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+/* Custom marker icon styling */
+.custom-marker-icon {
+  filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.3));
+  transition: all 0.3s ease;
+  z-index: 1000 !important;
+}
+
+.custom-marker-icon:hover {
+  transform: scale(1.1);
+  filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.5));
+}
+
+/* Specific styling for each marker type */
+.user-marker {
+  filter: drop-shadow(0 0 8px rgba(33, 150, 243, 0.7));
+}
+
+.user-marker:hover {
+  filter: drop-shadow(0 0 12px rgba(33, 150, 243, 0.9));
+}
+
+.start-marker {
+  filter: drop-shadow(0 0 8px rgba(76, 175, 80, 0.7));
+}
+
+.start-marker:hover {
+  filter: drop-shadow(0 0 12px rgba(76, 175, 80, 0.9));
+}
+
+.destination-marker {
+  filter: drop-shadow(0 0 8px rgba(244, 67, 54, 0.7));
+}
+
+.destination-marker:hover {
+  filter: drop-shadow(0 0 12px rgba(244, 67, 54, 0.9));
+}
+
+/* Add subtle animation to markers */
+@keyframes float {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.user-marker:hover {
+  animation: float 1.5s ease-in-out infinite;
+}
+
+.start-marker:hover, .destination-marker:hover {
+  animation: float 1.5s ease-in-out infinite;
 }
 
 /* Segment tooltip styles */

@@ -16,17 +16,34 @@ import L from 'leaflet';
 
 // Custom icons for markers
 const createCustomIcon = (type) => {
+  // Use modern SVG icons
   const iconUrl = type === 'user' 
-    ? '/icons/user-location.png' 
+    ? '/icons/user-location.svg' 
     : type === 'start' 
-      ? '/icons/start-marker.png'
-      : '/icons/destination-marker.png';
+      ? '/icons/start-marker.svg'
+      : '/icons/destination-marker.svg';
+  
+  // Configure icon size and anchor based on type
+  let iconSize, iconAnchor, popupAnchor;
+  
+  if (type === 'user') {
+    // User location is a circular marker
+    iconSize = [40, 40];
+    iconAnchor = [20, 20]; // Center of the circle
+    popupAnchor = [0, -15];
+  } else {
+    // Start and destination are pin shapes
+    iconSize = [40, 40];
+    iconAnchor = [20, 36]; // Bottom of the pin
+    popupAnchor = [0, -25];
+  }
   
   return L.icon({
     iconUrl,
-    iconSize: [32, 32],
-    iconAnchor: [16, 32],
-    popupAnchor: [0, -32]
+    iconSize: iconSize,
+    iconAnchor: iconAnchor,
+    popupAnchor: popupAnchor,
+    className: `custom-marker-icon ${type}-marker` // Add specific class for styling
   });
 };
 
@@ -218,7 +235,7 @@ const MapView = ({
       });
     }
     
-    console.log(`Created ${segments.length} segments from route with ${coordinates.length} points`);
+    console.log(`Created ${segments.length} segments of exactly ${segmentLengthKm}km each from route with ${coordinates.length} points`);
     return segments;
   }, []);
   
@@ -284,9 +301,9 @@ const MapView = ({
           if (geoJson) {
             console.log('Setting direct OSRM route GeoJSON');
             
-            // Create 2km segments from the GeoJSON route
+            // Always create exactly 2km segments from the GeoJSON route
             const segments = createSegmentsFromGeoJSON(geoJson.geometry, 2);
-            console.log(`Created ${segments.length} segments of 2km each`);
+            console.log(`Created ${segments.length} segments of exactly 2km each`);
             
             // Set the segments
             setRouteSegmentsFromGeoJSON(segments);
@@ -294,9 +311,9 @@ const MapView = ({
             // Set the direct route GeoJSON
             setDirectRouteGeoJSON(geoJson);
             
-            // Clear any existing route from the parent component
+            // Update parent component with the segments for potential server-side storage
             if (onRouteUpdate) {
-              onRouteUpdate(null);
+              onRouteUpdate(segments);
             }
           }
         })
@@ -331,11 +348,12 @@ const MapView = ({
         {/* Center map on user location */}
         {userLocation && <CenterMap position={userLocation} />}
         
-        {/* User location marker */}
-        {userLocation && (
+        {/* User location marker - only shown when no route is created */}
+        {userLocation && !route && (
           <Marker 
             position={[userLocation.lat, userLocation.lng]}
             icon={createCustomIcon('user')}
+            zIndexOffset={2000} // Highest z-index to ensure it's always on top
           >
             <Popup>
               <div>
@@ -350,6 +368,7 @@ const MapView = ({
           <Marker 
             position={[startLocation.lat, startLocation.lng]}
             icon={createCustomIcon('start')}
+            zIndexOffset={1800} // Very high z-index
           >
             <Popup>
               <div>
@@ -364,6 +383,7 @@ const MapView = ({
           <Marker 
             position={[destination.lat, destination.lng]}
             icon={createCustomIcon('destination')}
+            zIndexOffset={1800} // Very high z-index
           >
             <Popup>
               <div>
@@ -378,9 +398,10 @@ const MapView = ({
           <GeoJSON 
             data={directRouteGeoJSON}
             style={() => ({
-              color: '#3388ff',
-              weight: 5,
-              opacity: 0.7
+              color: '#006400', // Dark green color
+              weight: 6, // Increased weight for better visibility
+              opacity: 0.8, // Increased opacity
+              dashArray: null // Solid line
             })}
             eventHandlers={{
               click: handleRouteClick
@@ -395,11 +416,26 @@ const MapView = ({
             positions={segment.points.map(point => [point[1], point[0]])}
             color={segment.rating === 'Good' ? '#4CAF50' : 
                   segment.rating === 'Bad' ? '#F44336' : 
-                  '#FFC107'}
-            weight={5}
-            opacity={0.7}
+                  '#006400'} // Dark green for unrated segments
+            weight={6} // Increased weight for better visibility
+            opacity={0.9} // Increased opacity
+            className="route-segment" // Added class for additional CSS styling
             eventHandlers={{
-              click: () => handleSegmentClickMemo(segment)
+              click: () => handleSegmentClickMemo(segment),
+              mouseover: (e) => {
+                const layer = e.target;
+                layer.setStyle({
+                  weight: 8,
+                  opacity: 1
+                });
+              },
+              mouseout: (e) => {
+                const layer = e.target;
+                layer.setStyle({
+                  weight: 6,
+                  opacity: 0.9
+                });
+              }
             }}
           />
         ))}
@@ -423,6 +459,8 @@ const MapView = ({
                 <p><strong>Distance:</strong> {selectedRoad.distance.toFixed(2)} km</p>
                 <p><strong>Current Rating:</strong> {selectedRoad.rating || 'Not rated'}</p>
                 <p><strong>Rating Count:</strong> {selectedRoad.ratingCount || 0}</p>
+                <p><strong>Good Ratings:</strong> {selectedRoad.goodRatingCount || 0}</p>
+                <p><strong>Bad Ratings:</strong> {selectedRoad.badRatingCount || 0}</p>
               </div>
               
               {/* Rating buttons */}

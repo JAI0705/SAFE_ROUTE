@@ -122,10 +122,15 @@ exports.getRatingsInBounds = async (req, res) => {
 // Add a new road rating for a route segment
 exports.addRating = async (req, res) => {
   try {
-    const { id, coordinates, rating, ratingCount, badRatingCount, area } = req.body;
+    const { id, coordinates, rating, distance, points, ratingCount, goodRatingCount, badRatingCount, area } = req.body;
     
     if (!id || !coordinates || !rating) {
       return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    // Verify this is a 2km segment (or close to it)
+    if (distance && Math.abs(distance - 2.0) > 0.5 && !id.includes('segment-')) {
+      console.warn(`Warning: Segment ${id} has distance ${distance}km, which is not close to the expected 2km`);
     }
 
     // Check if rating for this segment already exists
@@ -134,17 +139,21 @@ exports.addRating = async (req, res) => {
     if (existingRating) {
       // Update existing rating with new counts
       const newRatingCount = (existingRating.ratingCount || 0) + 1;
+      const newGoodRatingCount = rating === 'Good' 
+        ? (existingRating.goodRatingCount || 0) + 1 
+        : (existingRating.goodRatingCount || 0);
       const newBadRatingCount = rating === 'Bad' 
         ? (existingRating.badRatingCount || 0) + 1 
         : (existingRating.badRatingCount || 0);
       
       // Calculate the majority rating
-      const majorityRating = newBadRatingCount > newRatingCount / 2 ? 'Bad' : 'Good';
+      const majorityRating = newBadRatingCount > newGoodRatingCount ? 'Bad' : 'Good';
       
       const updatedRating = {
         ...existingRating,
         rating: majorityRating,
         ratingCount: newRatingCount,
+        goodRatingCount: newGoodRatingCount,
         badRatingCount: newBadRatingCount,
         updatedAt: new Date()
       };
@@ -154,7 +163,7 @@ exports.addRating = async (req, res) => {
         updatedRating.area = area;
       }
       
-      console.log(`Updating existing rating for segment ${id}:`, updatedRating);
+      console.log(`Updating existing rating for 2km segment ${id}:`, updatedRating);
       
       await RoadRatingModel.update(existingRating.id, updatedRating);
       return res.status(200).json(updatedRating);
@@ -165,7 +174,10 @@ exports.addRating = async (req, res) => {
       id,
       coordinates,
       rating,
+      distance: distance || 2.0, // Default to 2km if not specified
+      points: points || [], // Store the actual points if provided
       ratingCount: ratingCount || 1,
+      goodRatingCount: rating === 'Good' ? 1 : 0,
       badRatingCount: rating === 'Bad' ? 1 : 0,
       area: area || {
         // Calculate area from coordinates if not provided
@@ -178,13 +190,13 @@ exports.addRating = async (req, res) => {
       updatedAt: new Date()
     };
 
-    console.log(`Adding new rating for segment ${id}:`, newRatingData);
+    console.log(`Adding new rating for 2km segment ${id}:`, newRatingData);
     
     // Add to database
     const newRating = await RoadRatingModel.create(newRatingData);
     res.status(201).json(newRating);
   } catch (error) {
-    console.error('Error adding/updating segment rating:', error);
+    console.error('Error adding/updating 2km segment rating:', error);
     res.status(500).json({ message: error.message });
   }
 };
