@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+**/node_modules/
 /.pnp
 .pnp.js
 
@@ -12,6 +13,7 @@ node_modules/
 
 # Cache files
 .cache/
+**/.cache/
 .parcel-cache/
 
 # Misc
