@@ -1,0 +1,451 @@
+/* Mobile-first responsive styles for Safe Route application */
+
+/* Base styles for all screen sizes */
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.h-screen {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.overflow-hidden {
+  overflow: hidden;
+}
+
+/* App container */
+.flex.flex-col.h-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* Main content area */
+.flex.flex-1.overflow-hidden {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  height: calc(100vh - 60px); /* Adjust based on header height */
+}
+
+/* Sidebar styles with collapsible behavior */
+.sidebar-container {
+  position: relative;
+  z-index: 100;
+}
+
+/* Sidebar styles */
+.sidebar {
+  width: 320px;
+  height: 100%;
+  overflow-y: auto;
+  z-index: 10;
+  background-color: white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  transition: all 0.3s ease;
+  padding: 15px;
+}
+
+/* Route information box styling */
+.sidebar .bg-white.p-4.rounded-lg.mb-4.shadow-md {
+  width: 100%;
+  margin: 10px 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Fix grid alignment in route details */
+.sidebar .grid.grid-cols-2.gap-4 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Ensure text doesn't overflow in route details */
+.sidebar .bg-blue-50.p-2.rounded-lg {
+  overflow: hidden;
+  word-break: break-word;
+}
+
+/* Mobile-specific sidebar styles */
+@media (max-width: 767px) {
+  /* Adjust header for mobile */
+  header, .header {
+    padding: 0 12px;
+    height: 50px;
+  }
+  
+  header h1 {
+    font-size: 16px !important;
+  }
+  
+  header .user-email {
+    max-width: 120px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  header button {
+    padding: 4px 8px !important;
+    font-size: 12px !important;
+  }
+  
+  /* Hide country badge on very small screens */
+  @media (max-width: 480px) {
+    header .country-badge {
+      display: none !important;
+    }
+  }
+  .sidebar {
+    width: 100%;
+    height: auto;
+    max-height: 40vh;
+    position: relative;
+  }
+  
+  /* Collapsed sidebar styles - only for mobile */
+  .sidebar.collapsed {
+    max-height: 0;
+    padding: 0;
+    overflow: hidden;
+    opacity: 0;
+  }
+}
+
+/* Map container - fills remaining space */
+.map-container {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  flex: 1;
+}
+
+/* Mobile map container */
+@media (max-width: 767px) {
+  .map-container {
+    width: 100%;
+    height: calc(100vh - 60px - 40vh); /* 60px for header, 40vh for sidebar */
+  }
+  
+  /* Map container when sidebar is collapsed */
+  .sidebar.collapsed ~ .map-container {
+    height: calc(100vh - 60px); /* Full height minus header */
+  }
+}
+
+/* Ensure the map and its container are properly sized */
+.leaflet-container {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Route info panel for mobile */
+.route-info {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  padding: 10px;
+  max-width: 90%;
+  width: 90%;
+  font-size: 14px;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+/* Make form elements more touch-friendly by default */
+input[type="text"], 
+input[type="search"],
+select,
+button {
+  min-height: 44px;
+  font-size: 16px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+/* Increase touch targets */
+button, 
+.clickable {
+  padding: 12px;
+  cursor: pointer;
+  background-color: #4285f4;
+  color: white;
+  border: none;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+button:hover,
+.clickable:hover {
+  background-color: #3367d6;
+}
+
+/* Safety toggle for mobile */
+.safety-toggle {
+  margin-bottom: 15px !important;
+  padding: 10px !important;
+  background-color: #f0f8ff !important;
+  border-radius: 5px !important;
+  z-index: 999;
+}
+
+/* Search results container */
+.search-input-container {
+  position: relative;
+  margin-bottom: 15px;
+}
+
+.search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.search-result-item {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+}
+
+.search-result-item:hover {
+  background-color: #f5f5f5;
+}
+
+/* Mobile-friendly popup styles */
+.leaflet-popup-content {
+  min-width: 180px;
+  font-size: 14px;
+}
+
+/* Ensure text is readable */
+body {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: 24px;
+  margin-bottom: 15px;
+}
+
+h2 {
+  font-size: 20px;
+  margin-bottom: 12px;
+}
+
+h3 {
+  font-size: 18px;
+  margin-bottom: 10px;
+}
+
+/* Landscape orientation adjustments for mobile */
+@media (max-width: 767px) and (orientation: landscape) {
+  .sidebar {
+    max-height: 30vh;
+  }
+  
+  .map-container {
+    height: 70vh;
+  }
+}
+
+/* Tablet and larger screens */
+@media (min-width: 768px) {
+  /* Switch to horizontal layout */
+  .flex.flex-1.overflow-hidden {
+    flex-direction: row;
+  }
+  
+  .sidebar {
+    width: 320px;
+    height: 100%;
+    max-height: none;
+    transform: translateX(0);
+  }
+  
+  /* Collapsed sidebar on desktop */
+  .sidebar.collapsed {
+    transform: translateX(-320px);
+    max-height: 100%;
+    opacity: 1;
+  }
+  
+  /* Adjust map container based on sidebar state */
+  .map-container {
+    width: calc(100% - 320px);
+    height: 100%;
+    transition: width 0.3s ease, margin-left 0.3s ease;
+  }
+  
+  /* Map container when sidebar is collapsed */
+  .sidebar.collapsed ~ .map-container {
+    width: 100%;
+    margin-left: -320px;
+  }
+  
+  .route-info {
+    max-width: 400px;
+    width: 400px;
+    padding: 15px;
+    font-size: 16px;
+    bottom: 20px;
+    transition: left 0.3s ease;
+  }
+}
+
+/* Large desktop screens */
+@media (min-width: 1200px) {
+  .sidebar {
+    width: 350px;
+  }
+  
+  .map-container {
+    width: calc(100% - 350px);
+  }
+  
+  .route-info {
+    max-width: 450px;
+    width: 450px;
+  }
+}
+
+/* Ensure touch targets are large enough on touch devices */
+@media (hover: none) and (pointer: coarse) {
+  button, 
+  .clickable,
+  a,
+  input[type="checkbox"] + label {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Increase spacing between interactive elements */
+  .form-group {
+    margin-bottom: 16px;
+  }
+}
+
+/* Sidebar toggle button - only on mobile */
+.sidebar-toggle {
+  display: none; /* Hidden by default */
+  position: fixed;
+  top: 70px;
+  left: 10px;
+  z-index: 1001;
+  background: #4285f4;
+  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+  font-size: 22px;
+  line-height: 48px;
+  text-align: center;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  color: white;
+  outline: none;
+}
+
+.sidebar-toggle:hover {
+  background-color: #3367d6;
+  transform: scale(1.05);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+.sidebar-toggle:active {
+  transform: scale(0.95);
+}
+
+/* Only show toggle button on mobile */
+@media (max-width: 767px) {
+  .sidebar-toggle {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    top: 60px;
+    right: 15px;
+    left: auto;
+  }
+  
+  /* When sidebar is collapsed, make button more prominent */
+  .sidebar.collapsed + .sidebar-toggle,
+  .sidebar.collapsed ~ .sidebar-toggle {
+    background-color: #4285f4;
+    color: white;
+    animation: pulse 2s infinite;
+  }
+  
+  @keyframes pulse {
+    0% {
+      box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.7);
+    }
+    70% {
+      box-shadow: 0 0 0 10px rgba(66, 133, 244, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(66, 133, 244, 0);
+    }
+  }
+}
+
+/* Fix for map markers and popups */
+.leaflet-marker-icon {
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.3));
+}
+
+.leaflet-popup {
+  margin-bottom: 60px; /* Give more space for popups on mobile */
+}
+
+/* Improve visibility of safety score display */
+.route-info div {
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 10px;
+}
+
+/* Ensure the header is properly styled */
+header, .header {
+  background-color: #4285f4;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+  z-index: 20;
+  position: relative;
+  width: 100%;
+  height: 60px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+}

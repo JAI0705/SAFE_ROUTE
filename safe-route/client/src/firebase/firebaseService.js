@@ -74,19 +74,40 @@ console.error = function(...args) {
   return originalConsoleError.apply(console, args);
 };
 
-// Get all road ratings - using only mock data, no Firestore calls
+// Get all road ratings - using Firestore when available, fallback to mock data
 export const getAllRoadRatings = async () => {
   // Use the error suppression function
   return await suppressErrorsFor(async () => {
-    // Simply return mock data without any network calls
+    // Try to use Firestore if available
+    if (!usingMockDb) {
+      try {
+        const ratingsCollection = collection(db, 'ratings');
+        const snapshot = await getDocs(ratingsCollection);
+        
+        if (!snapshot.empty) {
+          const ratings = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          console.log(`Retrieved ${ratings.length} ratings from Firestore`);
+          return ratings;
+        }
+      } catch (error) {
+        console.warn('Error fetching ratings from Firestore:', error.message);
+        console.warn('Falling back to mock data');
+      }
+    }
+    
+    // Fallback to mock data
+    console.log('Using mock ratings data');
     return mockRoadRatings;
   });
 };
 
-// Get road ratings by area - using only mock data
+// Get road ratings by area - using Firestore when available, fallback to mock data
 export const getRoadRatingsByArea = async (centerLat, centerLng, radiusKm) => {
-  // Get all mock ratings
-  const allRatings = mockRoadRatings;
+  // Get all ratings (either from Firestore or mock data)
+  const allRatings = await getAllRoadRatings();
   
   // Filter ratings by distance from center point
   const filteredRatings = allRatings.filter(rating => {
@@ -111,10 +132,10 @@ export const getRoadRatingsByArea = async (centerLat, centerLng, radiusKm) => {
   });
   
   console.log(`Found ${filteredRatings.length} road ratings in ${radiusKm}km radius of (${centerLat}, ${centerLng})`);
-  return Promise.resolve(filteredRatings);
+  return filteredRatings;
 };
 
-// Add a new road rating - mock implementation with improved handling
+// Add a new road rating - using Firestore when available, fallback to mock implementation
 export const addRoadRating = async (ratingData) => {
   try {
     console.log('Adding road rating:', ratingData);
@@ -125,6 +146,72 @@ export const addRoadRating = async (ratingData) => {
       return { success: false, error: 'Invalid rating data' };
     }
     
+    // Try to use Firestore if available
+    if (!usingMockDb) {
+      try {
+        const ratingsCollection = collection(db, 'ratings');
+        
+        // Check if this road has already been rated
+        let existingRatingDoc = null;
+        if (ratingData.id) {
+          const docRef = doc(db, 'ratings', ratingData.id);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            existingRatingDoc = { id: docSnap.id, ...docSnap.data() };
+          }
+        }
+        
+        if (existingRatingDoc) {
+          // Update existing rating
+          const existingRating = existingRatingDoc;
+          
+          // Update rating counts
+          const newRatingCount = (existingRating.ratingCount || 0) + 1;
+          const newBadRatingCount = ratingData.rating === 'Bad' 
+            ? (existingRating.badRatingCount || 0) + 1 
+            : (existingRating.badRatingCount || 0);
+          const newGoodRatingCount = ratingData.rating === 'Good' 
+            ? (existingRating.goodRatingCount || 0) + 1 
+            : (existingRating.goodRatingCount || 0);
+          
+          // Calculate the majority rating
+          const majorityRating = newBadRatingCount > newRatingCount / 2 ? 'Bad' : 'Good';
+          
+          // Update the document in Firestore
+          const updatedData = {
+            rating: majorityRating,
+            ratingCount: newRatingCount,
+            badRatingCount: newBadRatingCount,
+            goodRatingCount: newGoodRatingCount,
+            updatedAt: new Date().toISOString()
+          };
+          
+          await updateDoc(doc(db, 'ratings', existingRating.id), updatedData);
+          console.log('Updated existing road rating in Firestore:', existingRating.id);
+          return { success: true, id: existingRating.id, updated: true };
+        } else {
+          // Create a new rating with timestamps
+          const newRating = {
+            ...ratingData,
+            ratingCount: 1,
+            badRatingCount: ratingData.rating === 'Bad' ? 1 : 0,
+            goodRatingCount: ratingData.rating === 'Good' ? 1 : 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          
+          // Add to Firestore
+          const docRef = await addDoc(ratingsCollection, newRating);
+          console.log('Added new road rating to Firestore:', docRef.id);
+          return { success: true, id: docRef.id, updated: false };
+        }
+      } catch (firestoreError) {
+        console.warn('Error using Firestore for ratings:', firestoreError.message);
+        console.warn('Falling back to mock implementation');
+      }
+    }
+    
+    // Fallback to mock implementation
     // Check if this road has already been rated
     const existingRatingIndex = mockRoadRatings.findIndex(r => r.id === ratingData.id);
     
@@ -154,12 +241,16 @@ export const addRoadRating = async (ratingData) => {
         updatedAt: new Date().toISOString()
       };
       
-      console.log('Updated existing road rating:', mockRoadRatings[existingRatingIndex]);
+      console.log('Updated existing road rating in mock data:', mockRoadRatings[existingRatingIndex]);
       return { success: true, id: existingRating.id, updated: true };
     } else {
       // Create a new rating with an ID and timestamps
       const newRating = {
         ...ratingData,
+        id: ratingData.id || `mock-${Date.now()}`,
+        ratingCount: 1,
+        badRatingCount: ratingData.rating === 'Bad' ? 1 : 0,
+        goodRatingCount: ratingData.rating === 'Good' ? 1 : 0,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
@@ -722,6 +813,18 @@ export const calculateRoute = async (startLocation, destination, prioritizeSafet
     
     // Apply safety ratings to the route if prioritizing safety
     let routeWithSafety = [];
+    
+    // Initialize the route response object
+    let routeResponse = {
+      route: [],
+      summary: {
+        distance: 0,
+        duration: 0,
+        safetyScore: 0
+      },
+      directions: []
+    };
+    
     try {
       // Always apply safety ratings to the route for visualization
       const routeWithRatings = applyRoadSafetyToRoute(enhancedRoute, roadRatings);

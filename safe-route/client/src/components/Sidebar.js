@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { searchLocations } from '../services/geocodingService';
+import '../styles/responsive.css';
 
 // Popular destinations in India for quick selection
 const popularDestinations = [
@@ -88,6 +89,8 @@ const Sidebar = ({
     }
   };
 
+  // No longer needed - sidebar toggle is now handled in App.js
+
   // Handle location selection
   const handleLocationClick = (location) => {
     if (activeSearchField === 'start') {
@@ -134,8 +137,7 @@ const Sidebar = ({
   };
 
   return (
-    <div className="w-80 bg-white shadow-lg overflow-auto">
-      <div className="p-4">
+    <div className="p-4">
         <h2 className="text-xl font-bold mb-4">Find Safe Route</h2>
         
         {/* Start location input */}
@@ -155,7 +157,7 @@ const Sidebar = ({
           </div>
           {userLocation && (
             <button 
-              className="mt-1 text-sm text-primary flex items-center"
+              className="mt-1 text-sm bg-primary text-white flex items-center px-2 py-1 rounded-md hover:bg-blue-600 transition-colors"
               onClick={handleUseCurrentLocation}
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -260,8 +262,8 @@ const Sidebar = ({
         
         {/* Route information */}
         {routeInfo && (
-          <div className="bg-gray-50 p-4 rounded-lg mb-4">
-            <h3 className="font-bold text-lg mb-2">Route Details</h3>
+          <div className="bg-white p-4 rounded-lg mb-4 shadow-md border border-gray-200" style={{ width: '100%', boxSizing: 'border-box', maxWidth: '100%' }}>
+            <h3 className="font-bold text-lg mb-3 text-primary">Route Details</h3>
             
             {/* Show loading state or route details */}
             {loading || routeInfo.status ? (
@@ -275,31 +277,39 @@ const Sidebar = ({
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-gray-500 text-sm">Distance</p>
-                    <p className="font-semibold">{formatDistance(routeInfo.distance)}</p>
+                <div className="grid grid-cols-2 gap-4" style={{ width: '100%' }}>
+                  <div className="bg-blue-50 p-3 rounded-lg" style={{ overflow: 'hidden', textAlign: 'center' }}>
+                    <p className="text-blue-600 text-sm font-medium">Distance</p>
+                    <p className="font-bold text-lg">{formatDistance(routeInfo.distance)}</p>
                   </div>
                   
-                  <div>
-                    <p className="text-gray-500 text-sm">Estimated Time</p>
-                    <p className="font-semibold">{formatTime(routeInfo.estimatedTime)}</p>
+                  <div className="bg-blue-50 p-3 rounded-lg" style={{ overflow: 'hidden', textAlign: 'center' }}>
+                    <p className="text-blue-600 text-sm font-medium">Estimated Time</p>
+                    <p className="font-bold text-lg">{formatTime(routeInfo.estimatedTime)}</p>
                   </div>
                 </div>
                 
-                <div className="mt-3">
-                  <p className="text-gray-500 text-sm">Safety Score</p>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5 mt-1">
+                <div className="mt-4 bg-gray-50 p-3 rounded-lg border border-gray-200" style={{ width: '100%', boxSizing: 'border-box', maxWidth: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <p className="text-gray-700 text-sm font-medium">Safety Score</p>
+                    <span className="text-sm font-bold" style={{ 
+                      color: routeInfo.safetyScore >= 80 ? '#10B981' : routeInfo.safetyScore >= 50 ? '#F59E0B' : '#EF4444'
+                    }}>{routeInfo.safetyScore}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-4 mt-1" style={{ overflow: 'hidden' }}>
                     <div 
-                      className={`h-2.5 rounded-full ${
-                        routeInfo.safetyScore >= 80 ? 'bg-success' : 
-                        routeInfo.safetyScore >= 50 ? 'bg-warning' : 
-                        'bg-danger'
+                      className={`h-4 rounded-full ${
+                        routeInfo.safetyScore >= 80 ? 'bg-green-500' : 
+                        routeInfo.safetyScore >= 50 ? 'bg-yellow-500' : 
+                        'bg-red-500'
                       }`}
-                      style={{ width: `${routeInfo.safetyScore}%` }}
+                      style={{ width: `${routeInfo.safetyScore}%`, transition: 'width 0.5s ease' }}
                     ></div>
                   </div>
-                  <p className="text-right text-xs mt-1">{routeInfo.safetyScore}%</p>
+                  <div className="flex justify-between mt-2" style={{ width: '100%' }}>
+                    <span className="text-xs text-gray-500">Less Safe</span>
+                    <span className="text-xs text-gray-500">More Safe</span>
+                  </div>
                 </div>
               </>
             )}
@@ -326,7 +336,6 @@ const Sidebar = ({
           </ul>
         </div>
       </div>
-    </div>
   );
 };
 

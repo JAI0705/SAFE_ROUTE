@@ -40,10 +40,10 @@ console.log('Running in demo mode without Firebase Firestore');
 // Export the Express app as a Firebase Function
 exports.api = functions.https.onRequest(app);
 
-// For local development, uncomment this:
-// if (process.env.NODE_ENV !== 'production') {
-//   const PORT = process.env.PORT || 5000;
-//   app.listen(PORT, () => {
-//     console.log(`Server running on port ${PORT}`);
-//   });
-// }
+// For local development
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}

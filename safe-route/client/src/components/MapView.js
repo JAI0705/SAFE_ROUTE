@@ -12,6 +12,7 @@ import {
   GeoJSON
 } from 'react-leaflet';
 import './MapView.css';
+import '../styles/responsive.css';
 import L from 'leaflet';
 
 // Custom icons for markers
@@ -328,11 +329,11 @@ const MapView = ({
   }, []);
   
   return (
-    <div className="map-container">
+    <div className="map-container" style={{ width: '100%', height: '100%', position: 'relative' }}>
       <MapContainer 
         center={mapCenter} 
         zoom={mapZoom} 
-        style={{ height: '100%', width: '100%' }}
+        style={{ height: '100%', width: '100%', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
         ref={mapRef}
         onClick={handleMapClick}
       >

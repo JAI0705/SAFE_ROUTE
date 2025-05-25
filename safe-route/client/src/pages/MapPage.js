@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import AuthNav from '../components/AuthNav';
 import App from '../App';
 import '../styles/MapPage.css';
 
@@ -18,7 +17,6 @@ const MapPage = () => {
 
   return (
     <div className="map-page">
-      <AuthNav />
       <App />
     </div>
   );

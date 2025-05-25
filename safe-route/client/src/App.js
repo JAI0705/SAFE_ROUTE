@@ -2,6 +2,7 @@ import React, { useState, useEffect, Component } from 'react';
 import { MapContainer, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import './styles/App.css';
+import './styles/responsive.css';
 
 // Components
 import Header from './components/Header';
@@ -796,6 +797,33 @@ function App() {
     fetchRoadRatings(bounds);
   };
 
+  // State for sidebar collapse - only used on mobile
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // State to track if we're on mobile
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  // Check for mobile screen size on mount and resize
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      // If switching to desktop, ensure sidebar is expanded
+      if (!mobile && sidebarCollapsed) {
+        setSidebarCollapsed(false);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [sidebarCollapsed]);
+
+  // Toggle sidebar function - only for mobile
+  const toggleSidebar = () => {
+    if (isMobile) {
+      setSidebarCollapsed(!sidebarCollapsed);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen">
       <Header />
@@ -803,10 +831,19 @@ function App() {
       <div className="flex flex-1 overflow-hidden">
         {/* We now assume permission is always granted for authenticated users */}
         <>
-          <div className="sidebar">
-              <h1>Safe Route</h1>
-              
-              <div className="safety-toggle" style={{ marginBottom: '15px', padding: '10px', backgroundColor: '#f0f8ff', borderRadius: '5px' }}>
+          {/* Sidebar toggle button - positioned outside sidebar container for better visibility when collapsed */}
+          <button 
+            className="sidebar-toggle" 
+            onClick={toggleSidebar}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {sidebarCollapsed ? '☰' : '✕'}
+          </button>
+          
+          <div className="sidebar-container">
+            
+            <div className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+              <div className="safety-toggle" style={{ marginTop: '15px', marginBottom: '15px', padding: '10px', backgroundColor: '#f0f8ff', borderRadius: '5px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
                   <input 
                     type="checkbox" 
@@ -835,53 +872,24 @@ function App() {
                 onCalculateRoute={calculateRoute}
               />
               
-              {routeInfo && (
-                <div className="route-info">
-                  <h3>Route Information</h3>
-                  <p><strong>Distance:</strong> {routeInfo.distance !== undefined && typeof routeInfo.distance === 'number' ? routeInfo.distance.toFixed(2) : '0.00'} km</p>
-                  <p><strong>Estimated Time:</strong> {routeInfo.estimatedTime !== undefined && typeof routeInfo.estimatedTime === 'number' ? routeInfo.estimatedTime.toFixed(0) : '0'} minutes</p>
-                  <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    backgroundColor: routeInfo.safetyScore !== undefined && routeInfo.safetyScore > 80 ? '#d4edda' : routeInfo.safetyScore !== undefined && routeInfo.safetyScore > 60 ? '#fff3cd' : '#f8d7da',
-                    padding: '5px 10px',
-                    borderRadius: '4px',
-                    marginBottom: '10px'
-                  }}>
-                    <strong style={{ marginRight: '5px' }}>Safety Score:</strong> 
-                    <span>{routeInfo.safetyScore}/100</span>
-                    {routeInfo.isSafeRoute && (
-                      <span style={{ 
-                        marginLeft: '10px', 
-                        backgroundColor: '#28a745', 
-                        color: 'white', 
-                        padding: '2px 6px', 
-                        borderRadius: '3px',
-                        fontSize: '12px'
-                      }}>
-                        Safety Optimized
-                      </span>
-                    )}
-                  </div>
-                  <p><strong>Route Type:</strong> {routeInfo.routeType}</p>
-                </div>
-              )}
+              {/* Route information is now displayed in the Sidebar component */}
             </div>
+          </div>
             
-            <div className="flex-1">
-              <MapView 
-                userLocation={userLocation}
-                startLocation={startLocation}
-                destination={destination}
-                route={route}
-                roadRatings={roadRatings}
-                routeSegments={routeSegments}
-                trafficData={[]}
-                onBoundsChange={handleBoundsChange}
-                onRoadRating={handleRoadRating}
-              />
-            </div>
-          </>
+          <div className="map-wrapper" style={{ position: 'absolute', top: isMobile && !sidebarCollapsed ? '40vh' : (isMobile ? '50px' : '60px'), left: isMobile ? 0 : '320px', right: 0, bottom: 0, overflow: 'hidden' }}>
+            <MapView 
+              userLocation={userLocation}
+              startLocation={startLocation}
+              destination={destination}
+              route={route}
+              roadRatings={roadRatings}
+              routeSegments={routeSegments}
+              trafficData={[]}
+              onBoundsChange={handleBoundsChange}
+              onRoadRating={handleRoadRating}
+            />
+          </div>
+        </>
       </div>
     </div>
   );
