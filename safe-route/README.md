@@ -210,6 +210,8 @@ npm start
 
 3. Open your browser and navigate to `http://localhost:3000`
 
+### Website link --> https://safe-route-127fd.web.app/
+
 ## Usage
 
 1. Allow location access when prompted
